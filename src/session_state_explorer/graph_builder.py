@@ -137,6 +137,9 @@ def build_graph(project: ProjectState) -> nx.DiGraph:
                 anchor,
                 type="has_unresolved_route",
                 route_id=route.id,
+                send_mode=route.send_mode,
+                volume_db=route.volume_db,
+                mute=route.mute,
             )
         else:
             # A resolved send is a direct edge between two track nodes.

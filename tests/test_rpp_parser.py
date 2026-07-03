@@ -299,14 +299,16 @@ def test_takefx_skip_is_warned():
 
 
 def test_fx_container_children_keep_their_own_state():
-    # REAPER v7 <CONTAINER>: the container consumes its own (bypassed) BYPASS
-    # state, children keep theirs, and a flattening warning is emitted.
+    # REAPER v7 <CONTAINER>: real serialization is `<CONTAINER Container "<name>"`
+    # (first argument is the literal word "Container", second is the user name).
+    # The container consumes its own (bypassed) BYPASS state, children keep
+    # theirs, and a flattening warning is emitted.
     rpp = _single_track(
         "7.0/win64",
         'NAME "Drums"',
         "<FXCHAIN",
         "  BYPASS 1 0 0",
-        '  <CONTAINER "Parallel Crush"',
+        '  <CONTAINER Container "Parallel Crush"',
         "    BYPASS 0 0 0",
         '    <VST "VST: ReaComp (Cockos)" reacomp.dll 0 "" 0',
         "    >",
@@ -327,3 +329,46 @@ def test_fx_container_children_keep_their_own_state():
     assert fx[2].enabled is False and fx[2].preset == "Crushed"
     assert fx[3].enabled is True  # sibling after the container unaffected
     assert any("container" in w.lower() for w in project.warnings)
+
+
+def test_unnamed_fx_container_falls_back_to_container():
+    # An unnamed container serialises as `<CONTAINER Container ""`.
+    rpp = _single_track(
+        "7.0/win64",
+        'NAME "Drums"',
+        "<FXCHAIN",
+        '  <CONTAINER Container ""',
+        '    <VST "VST: ReaComp (Cockos)" reacomp.dll 0 "" 0',
+        "    >",
+        "  >",
+        ">",
+    )
+    project = parse_rpp(rpp)
+    assert project.tracks[0].fx[0].name == "Container"
+
+
+def test_darwin_platform_classified_as_swell():
+    # "darwin" contains the substring "win"; it must still classify as SWELL
+    # (R in the high byte), not Windows.
+    flagged = 0xC00000 | 0x1000000  # red on SWELL platforms
+    project = parse_rpp(_single_track("7.0/darwin-arm64", 'NAME "A"', f"PEAKCOL {flagged}"))
+    assert project.tracks[0].color == "#c00000"
+    assert not any("byte order" in w for w in project.warnings)
+
+
+def test_legacy_x64_header_is_windows_without_warning():
+    flagged = 0x0000C0 | 0x1000000  # red in the Windows layout
+    project = parse_rpp(_single_track("5.983/x64", 'NAME "A"', f"PEAKCOL {flagged}"))
+    assert project.tracks[0].color == "#c00000"
+    assert not any("byte order" in w for w in project.warnings)
+
+
+def test_spaced_project_header_does_not_abort_parse():
+    # Crafted input: whitespace between '<' and the tag, no header arguments.
+    # Must not raise mid-parse (the never-raise guarantee) and must still
+    # parse the rest of the file.
+    rpp = '< REAPER_PROJECT\n  <TRACK\n    NAME "Still here"\n  >\n>\n'
+    project = parse_rpp(rpp)
+    assert not any("stopped early" in w for w in project.warnings)
+    assert len(project.tracks) == 1
+    assert project.tracks[0].name == "Still here"

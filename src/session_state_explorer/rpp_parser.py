@@ -217,7 +217,8 @@ def _open_block(state: _State, stripped: str, raw_line: str) -> None:
         # Header looks like: <REAPER_PROJECT 0.1 "7.0/win64" 1700000000
         # The quoted token records the authoring REAPER version/platform, which we
         # need to disambiguate the OS-dependent track-colour byte order.
-        header_tokens = _tokenize(stripped[1:].split(None, 1)[1]) if len(stripped.split(None, 1)) > 1 else []
+        header_parts = stripped[1:].split(None, 1)
+        header_tokens = _tokenize(header_parts[1]) if len(header_parts) > 1 else []
         if len(header_tokens) > 1:
             state.project.header_platform = header_tokens[1]
         state.stack.append(_Frame(kind="project"))
@@ -360,9 +361,17 @@ def _extract_fx_name(stripped: str, tag: str) -> Optional[str]:
     body = stripped[1:]  # drop leading '<'
     # Remove the tag token itself.
     _, remainder = _parse_first_token(body)
-    for token in _tokenize(remainder):
-        if token and token.strip():
-            return token.strip()
+    tokens = [t.strip() for t in _tokenize(remainder)]
+    if tag == "CONTAINER" and tokens and tokens[0] == "Container":
+        # REAPER 7 serialises containers as `<CONTAINER Container "<name>"`:
+        # the first argument is always the literal word "Container" and the
+        # user-visible name is the second (an empty string when unnamed).
+        if len(tokens) > 1 and tokens[1]:
+            return tokens[1]
+        return "Container"
+    for token in tokens:
+        if token:
+            return token
     return None
 
 
@@ -546,10 +555,14 @@ def _swell_platform(header: Optional[str]) -> Optional[bool]:
     if not header:
         return None
     lowered = header.lower()
-    if "win" in lowered:
-        return False
+    # SWELL tokens are checked first: "darwin" contains the substring "win",
+    # so the Windows check must not run before it.
     if any(token in lowered for token in ("osx", "macos", "darwin", "linux")):
         return True
+    # "x64" covers legacy Windows headers (e.g. "5.983/x64"); macOS builds of
+    # that era wrote "OSX64", which the SWELL check above already caught.
+    if "win" in lowered or "x64" in lowered:
+        return False
     return None
 
 
