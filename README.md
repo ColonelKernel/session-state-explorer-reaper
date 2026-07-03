@@ -24,11 +24,19 @@ This prototype treats the **session itself** as a first-class, interpretable obj
 turns the accessible surface of a REAPER project into a typed graph that a human can read,
 that an algorithm can reason over, and that is honest about what it could *not* observe.
 
-## 2. Screenshot
+## 2. Screenshots
 
-> _Add screenshots to [`docs/screenshots/`](docs/screenshots/) and reference them here._
->
-> ![Session State Explorer screenshot placeholder](docs/screenshots/placeholder.png)
+Captured from a real 23-track REAPER 7 session (authored on macOS). Note the parser
+warning: one stem lives on an unmounted external drive — a genuinely partially
+observable session state, surfaced rather than hidden.
+
+![Parsed session summary with a partial-observability warning](docs/screenshots/01_summary.png)
+
+![Interactive DAW-state graph: project, tracks, media items and audio files](docs/screenshots/02_graph.png)
+
+![Explainable recommendations with suggested action and caveat](docs/screenshots/05_recommendations.png)
+
+More views (tables, audio descriptors) in [`docs/screenshots/`](docs/screenshots/).
 
 ## 3. Features
 

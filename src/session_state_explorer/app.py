@@ -295,6 +295,25 @@ def _sidebar() -> None:
                     "`python data/examples/make_example_data.py`"
                 )
 
+        local_path = st.text_input(
+            "…or load from a local .rpp path",
+            value="",
+            help=(
+                "Absolute path to a REAPER project on this machine. Unlike a browser "
+                "upload, this keeps the project-folder context, so audio files resolve "
+                "relative to the .rpp automatically."
+            ),
+        )
+        if st.button("Load from local path", use_container_width=True):
+            if os.path.isfile(local_path) and local_path.lower().endswith(".rpp"):
+                with open(local_path, "r", encoding="utf-8", errors="replace") as handle:
+                    st.session_state["rpp_text"] = handle.read()
+                st.session_state["source_file"] = local_path
+                st.session_state["base_dir"] = os.path.dirname(local_path)
+                st.toast("Loaded project from local path.")
+            else:
+                st.warning("Path not found or not a `.rpp` file.")
+
         st.divider()
         st.header("2 · Audio (optional)")
         st.caption(

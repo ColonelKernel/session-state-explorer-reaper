@@ -238,7 +238,7 @@ def _rule_level_imbalance(
     median_peak = median(peaks) if peaks else None
     median_rms = median(rmss) if rmss else None
 
-    recs: List[Recommendation] = []
+    hot: List[AudioDescriptorSet] = []
     for descriptor in usable:
         hot_peak = (
             median_peak
@@ -252,30 +252,40 @@ def _rule_level_imbalance(
             and median_rms > 0
             and descriptor.rms_mean > LEVEL_IMBALANCE_RATIO * median_rms
         )
-        if not (hot_peak or hot_rms):
-            continue
+        if hot_peak or hot_rms:
+            hot.append(descriptor)
 
-        label = descriptor.file_path or descriptor.node_id or "an audio item"
-        recs.append(
-            Recommendation(
-                id=f"rec-level-imbalance-{descriptor.node_id or label}",
-                title="Potential level imbalance detected",
-                severity="warning",
-                confidence=0.5,
-                related_node_ids=[descriptor.node_id] if descriptor.node_id else [],
-                explanation=(
-                    f"One audio item ({_basename(label)}) has a substantially higher "
-                    "RMS or peak level than the project median. This may be intentional "
-                    "(a feature, a lead element), but it is worth checking in context."
-                ),
-                suggested_action=(
-                    "Compare this item's level against the rest of the session and "
-                    "adjust gain staging if the imbalance is unintended."
-                ),
-                caveat=_CAVEAT + " Level differences are often intentional.",
-            )
+    if not hot:
+        return []
+
+    # A single aggregated recommendation: on stem-heavy sessions several files
+    # routinely exceed the median, and one card per file reads as noise.
+    names = [_basename(d.file_path or d.node_id or "an audio item") for d in hot]
+    listed = ", ".join(names[:6]) + (f" and {len(names) - 6} more" if len(names) > 6 else "")
+    subject = (
+        f"One audio item ({listed}) has"
+        if len(hot) == 1
+        else f"{len(hot)} audio items ({listed}) have"
+    )
+    return [
+        Recommendation(
+            id="rec-level-imbalance",
+            title="Potential level imbalance detected",
+            severity="warning",
+            confidence=0.5,
+            related_node_ids=[d.node_id for d in hot if d.node_id],
+            explanation=(
+                f"{subject} a substantially higher RMS or peak level than the "
+                "project median. This may be intentional (a feature, a lead "
+                "element), but it is worth checking in context."
+            ),
+            suggested_action=(
+                "Compare these items' levels against the rest of the session and "
+                "adjust gain staging if the imbalance is unintended."
+            ),
+            caveat=_CAVEAT + " Level differences are often intentional.",
         )
-    return recs
+    ]
 
 
 def _basename(path: str) -> str:

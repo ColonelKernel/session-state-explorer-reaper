@@ -103,6 +103,28 @@ def test_level_imbalance_recommendation():
     assert imbalance[0].related_node_ids == ["audio-2"]
 
 
+def test_level_imbalance_aggregates_multiple_hot_files():
+    # Several hot stems must yield ONE aggregated recommendation, not one card
+    # per file (observed as recommendation spam on a real 23-stem session).
+    descriptors = [
+        AudioDescriptorSet(node_id=f"audio-{i}", file_path=f"q{i}.wav", available=True,
+                           rms_mean=0.1, peak_amplitude=0.2)
+        for i in range(3)
+    ] + [
+        AudioDescriptorSet(node_id="audio-hot1", file_path="hot1.wav", available=True,
+                           rms_mean=0.9, peak_amplitude=0.95),
+        AudioDescriptorSet(node_id="audio-hot2", file_path="hot2.wav", available=True,
+                           rms_mean=0.8, peak_amplitude=0.9),
+    ]
+    project = parse_rpp('<REAPER_PROJECT 0.1 "x" 0\n>\n')
+    graph = build_graph(project)
+    recs = generate_recommendations(project, graph, descriptors)
+    imbalance = [r for r in recs if r.id.startswith("rec-level-imbalance")]
+    assert len(imbalance) == 1
+    assert set(imbalance[0].related_node_ids) == {"audio-hot1", "audio-hot2"}
+    assert "2 audio items" in imbalance[0].explanation
+
+
 def test_well_structured_session_produces_no_false_positives():
     # A vocal with a full chain, an ambience return that receives a send, few tracks.
     rpp = """<REAPER_PROJECT 0.1 "x" 0
