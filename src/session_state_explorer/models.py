@@ -29,6 +29,12 @@ class FxState(BaseModel):
     fx_type: Optional[str] = None  # e.g. "VST", "VST3", "JS", "AU", "CLAP"
     family: Optional[str] = None  # heuristic family: EQ / Dynamics / Ambience / ...
     enabled: Optional[bool] = None  # False when the processor is bypassed
+    # True when the plug-in is unloaded/offline; independent of ``enabled``
+    # (SDK: TrackFX_GetOffline / TrackFX_SetOffline).
+    offline: Optional[bool] = None
+    # "main" for the regular FX chain, "rec" for record-input/monitoring FX
+    # (an <FXCHAIN_REC> block; monitoring FX on the master track).
+    chain: str = "main"
     preset: Optional[str] = None
     raw_line: Optional[str] = None
 
@@ -51,15 +57,24 @@ class RouteState(BaseModel):
 
     REAPER stores sends as ``AUXRECV`` lines on the *receiving* track that point at
     the *source* track by index. We normalise this into a directed source -> target
-    relationship. When the target cannot be resolved confidently, ``route_type`` is
-    set to ``"unresolved"`` and a warning is recorded on the project.
+    relationship. When the source cannot be resolved confidently, ``route_type`` is
+    set to ``"unresolved"``, ``source_track_id`` is ``None`` (the receiving track is
+    still a real, known target) and a warning is recorded on the project.
     """
 
     id: str
-    source_track_id: str
+    source_track_id: Optional[str] = None
+    source_name: Optional[str] = None  # description of an unresolved source
     target_track_id: Optional[str] = None
     target_name: Optional[str] = None
     route_type: str = "send"  # "send" | "receive" | "unresolved"
+    # Per-send parameters (SDK GetSetTrackSendInfo semantics; token positions in
+    # the AUXRECV line are format knowledge, parsed tolerantly).
+    send_mode: Optional[int] = None  # 0=post-fader, 1=pre-fx, 2=post-fx (deprecated), 3=post-fx
+    volume: Optional[float] = None  # linear send gain, 1.0 = +0dB (SDK D_VOL)
+    volume_db: Optional[float] = None  # convenience conversion of ``volume``
+    pan: Optional[float] = None  # -1..+1 (SDK D_PAN)
+    mute: Optional[bool] = None  # send mute (SDK B_MUTE)
     raw_line: Optional[str] = None
 
 
@@ -71,11 +86,21 @@ class TrackState(BaseModel):
     name: Optional[str] = None
     role: Optional[str] = None  # heuristic role: Vocal / Drums / Bass / ...
     volume: Optional[float] = None  # linear gain as stored by REAPER (1.0 == unity)
-    volume_db: Optional[float] = None  # convenience: volume expressed in dB
+    # Convenience: fader volume in dB. Fader trim only — excludes pan-law
+    # attenuation and width, which REAPER applies separately.
+    volume_db: Optional[float] = None
     pan: Optional[float] = None  # -1.0 (L) .. +1.0 (R)
+    pan_mode: Optional[int] = None  # SDK I_PANMODE: 0=classic, 3=new balance, 5=stereo pan, 6=dual pan
+    pan_law: Optional[float] = None  # SDK D_PANLAW: <0 = project default, 1.0 = +0dB
+    width: Optional[float] = None  # SDK D_WIDTH: -1..1 (stereo width)
     mute: Optional[bool] = None
     solo: Optional[bool] = None
-    color: Optional[str] = None  # "#rrggbb" when decodable
+    # Raw solo state (SDK I_SOLO): 0=off, 1=solo, 2=solo in place,
+    # 5=safe solo, 6=safe solo in place. ``solo`` is its boolean projection.
+    solo_mode: Optional[int] = None
+    solo_defeat: Optional[bool] = None  # SDK B_SOLO_DEFEAT: audible even when another track is soloed
+    main_send: Optional[bool] = None  # SDK B_MAINSEND: track sends audio to its parent/master
+    color: Optional[str] = None  # "#rrggbb" when decodable and flagged as in use
     media_items: List[MediaItemState] = Field(default_factory=list)
     fx: List[FxState] = Field(default_factory=list)
     raw_lines: List[str] = Field(default_factory=list)
@@ -86,8 +111,16 @@ class ProjectState(BaseModel):
 
     project_name: Optional[str] = None
     source_file: Optional[str] = None
+    # Version/platform token from the <REAPER_PROJECT header (e.g. "7.0/win64").
+    # Used to disambiguate the OS-dependent track-colour byte order.
+    header_platform: Optional[str] = None
     tempo: Optional[float] = None
+    time_sig_num: Optional[int] = None  # e.g. 4 in 4/4 (project default time signature)
+    time_sig_denom: Optional[int] = None
     sample_rate: Optional[int] = None
+    # Whether the stored sample rate is actually enforced ("use project sample
+    # rate" checkbox); when False the stored rate is informational only.
+    sample_rate_use: Optional[bool] = None
     tracks: List[TrackState] = Field(default_factory=list)
     routes: List[RouteState] = Field(default_factory=list)
     warnings: List[str] = Field(default_factory=list)

@@ -96,15 +96,18 @@ directory** when resolving media referenced by an uploaded `.rpp`.
 
 | Element       | Fields |
 | ------------- | ------ |
-| Project       | name, tempo, sample rate, warnings |
-| Track         | name, heuristic role, volume (dB), pan, mute, solo, colour |
+| Project       | name, tempo + time signature, sample rate (+ enforced flag), authoring platform, warnings |
+| Track         | name, heuristic role, volume (dB), pan / pan mode / pan law / width, mute, solo (+ raw solo mode, solo defeat), master/parent send, colour |
 | Media item    | name, position, length, source type |
 | Audio file    | source path (resolved when possible) |
-| FX            | name, type (VST/JS/AU/…), heuristic family, enabled/bypassed, preset |
-| Route         | source/target track, send vs. unresolved, raw line |
+| FX            | name, type (VST/JS/AU/CLAP/…), heuristic family, enabled/bypassed, offline, main vs. record chain, preset |
+| Route         | source/target track, send vs. unresolved, send mode / level (dB) / pan / mute, raw line |
 
 Plug-in-private parameter state is **not** decoded. FX are identified by name and a coarse
 keyword family (EQ, Dynamics, Ambience, Saturation, Modulation, Pitch, Utility, Unknown).
+
+Value semantics (volume scaling, solo modes, send modes, the custom-colour "in use" flag
+and its OS-dependent byte order) follow the official REAPER extension SDK documentation.
 
 ## 8. Graph schema overview
 
@@ -138,7 +141,7 @@ rule.”_
 
 ```json
 {
-  "schema_version": "0.1.0",
+  "schema_version": "0.2.0",
   "project": { "...": "parsed ProjectState" },
   "graph": { "nodes": [], "edges": [], "metadata": {} },
   "descriptors": [],
@@ -155,6 +158,10 @@ rule.”_
 - Plug-in state is **opaque**: FX are recognised by name/family only.
 - Missing plug-ins or audio files may prevent full reconstruction; such gaps are flagged as
   warnings and as `bus_or_target` / unresolved nodes rather than hidden.
+- Track colours are stored OS-natively; when the authoring platform cannot be read from the
+  project header, the Windows byte order is assumed and a warning notes that red/blue may be
+  swapped. Take FX, master-track FX and hardware output routing are detected but not
+  modelled (each is surfaced as a warning).
 - Audio descriptors are **simple summaries**, not mastering-grade measurements. Integrated
   loudness (LUFS) is computed only when `pyloudnorm` is installed.
 - Recommendations are **heuristics for reflection**, not automated mixing decisions.

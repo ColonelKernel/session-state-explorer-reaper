@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "session-state-explorer"
-version = "0.1.0"
+version = "0.2.0"
 description = "Interpretable DAW-state graphs for human-centered AI-assisted music production (research prototype)."
 readme = "README.md"
 license = { text = "MIT" }
@@ -45,7 +45,7 @@ full = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/your-username/session-state-explorer"
+Homepage = "https://github.com/ColonelKernel/session-state-explorer"
 
 [tool.setuptools]
 package-dir = { "" = "src" }

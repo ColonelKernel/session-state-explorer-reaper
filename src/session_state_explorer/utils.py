@@ -126,13 +126,20 @@ def linear_to_db(value: Optional[float]) -> Optional[float]:
     return round(20.0 * math.log10(value), 2)
 
 
-def decode_color(packed: Optional[int]) -> Optional[str]:
+def decode_color(packed: Optional[int], swell_order: bool = False) -> Optional[str]:
     """Decode a REAPER packed colour integer into ``#rrggbb``.
 
-    REAPER stores track colours as an OS-native integer. On the common little-endian
-    layout the low three bytes are R, G, B (with a high "custom colour" flag bit).
-    This is a best-effort decode; it returns ``None`` when the value is missing or 0
-    (meaning "no custom colour").
+    REAPER stores custom colours as an OS-native integer OR-ed with the
+    0x1000000 "custom colour in use" flag (SDK ``I_CUSTOMCOLOR``: "If you do not
+    |0x1000000, then it will not be used, but will store the color"). A value
+    without that flag therefore means *no custom colour*, and we return ``None``
+    — this also makes black-in-use (exactly 0x1000000) decode to ``#000000``.
+
+    The byte order of the low three bytes depends on the OS the project was
+    authored on (SDK ``ColorToNative``: "OS dependent color ... e.g. RGB() macro
+    on Windows"): Windows COLORREF puts R in the low byte, while SWELL
+    (macOS/Linux) puts R in bits 16-23. Pass ``swell_order=True`` for
+    non-Windows-authored projects; the default assumes the Windows layout.
     """
 
     if packed is None:
@@ -141,12 +148,17 @@ def decode_color(packed: Optional[int]) -> Optional[str]:
         value = int(packed)
     except (TypeError, ValueError):
         return None
-    if value == 0:
-        return None
-    value &= 0xFFFFFF  # drop the high custom-colour flag bit
-    red = value & 0xFF
-    green = (value >> 8) & 0xFF
-    blue = (value >> 16) & 0xFF
+    if not (value & 0x1000000):
+        return None  # colour stored but not in use (SDK: I_CUSTOMCOLOR)
+    value &= 0xFFFFFF  # drop the custom-colour flag bit
+    if swell_order:
+        red = (value >> 16) & 0xFF
+        green = (value >> 8) & 0xFF
+        blue = value & 0xFF
+    else:
+        red = value & 0xFF
+        green = (value >> 8) & 0xFF
+        blue = (value >> 16) & 0xFF
     return f"#{red:02x}{green:02x}{blue:02x}"
 
 

@@ -125,15 +125,26 @@ def _fx_dataframe(project) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+_SEND_MODE_LABELS = {
+    0: "post-fader",
+    1: "pre-FX",
+    2: "post-FX (deprecated)",
+    3: "post-FX",
+}
+
+
 def _routes_dataframe(project) -> pd.DataFrame:
     rows = []
     id_to_name = {t.id: (t.name or t.id) for t in project.tracks}
     for r in project.routes:
         rows.append(
             {
-                "source": id_to_name.get(r.source_track_id, r.source_track_id),
-                "target": id_to_name.get(r.target_track_id, r.target_name or "—"),
+                "source": id_to_name.get(r.source_track_id) or r.source_name or "—",
+                "target": id_to_name.get(r.target_track_id) or r.target_name or "—",
                 "type": r.route_type,
+                "mode": _SEND_MODE_LABELS.get(r.send_mode, r.send_mode),
+                "volume (dB)": r.volume_db,
+                "mute": r.mute,
                 "raw_line": (r.raw_line or "").strip(),
             }
         )

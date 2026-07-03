@@ -85,14 +85,18 @@ STEMS = [
 
 def build_rpp_text() -> str:
     lines: List[str] = []
-    lines.append('<REAPER_PROJECT 0.1 "7.0/example" 1700000000')
+    # The platform token ("win64") pins the OS-dependent colour byte order so the
+    # parser can decode PEAKCOL deterministically and without a caveat warning.
+    lines.append('<REAPER_PROJECT 0.1 "7.0/win64" 1700000000')
     lines.append("  TEMPO 120 4 4")
     lines.append("  SAMPLERATE 44100 0 0")
 
     for index, (name, color, audio_file, fx_names) in enumerate(TRACKS):
         lines.append(f"  <TRACK {{GUID-{index:02d}}}")
         lines.append(f'    NAME "{name}"')
-        lines.append(f"    PEAKCOL {color}")
+        # REAPER only treats a colour as "in use" when OR-ed with 0x1000000
+        # (SDK I_CUSTOMCOLOR); an unflagged value is stored but ignored.
+        lines.append(f"    PEAKCOL {color | 0x1000000}")
         lines.append("    VOLPAN 1 0 -1 -1 1")
         lines.append("    MUTESOLO 0 0 0")
 

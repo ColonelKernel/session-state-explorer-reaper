@@ -30,5 +30,14 @@ exports/
 .vscode/
 *.swp
 
+# Local Claude Code session config (dev-server launch settings)
+.claude/
+
+# Vendored REAPER extension SDK (third-party Cockos code, kept locally for
+# reference; parser semantics were cross-checked against it — see code comments)
+sdk/
+reaper-plugins/
+/README
+
 # Streamlit
 .streamlit/secrets.toml

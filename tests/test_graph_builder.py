@@ -94,8 +94,19 @@ def test_unresolved_route_becomes_bus_node():
     bus_nodes = [n for n, d in graph.nodes(data=True) if d["type"] == "bus_or_target"]
     assert len(bus_nodes) == 1
     assert graph.graph["n_unresolved"] == 1
-    edge_types = {data["type"] for _, _, data in graph.edges(data=True)}
-    assert "has_unresolved_route" in edge_types
+    unresolved = [
+        (u, v, d)
+        for u, v, d in graph.edges(data=True)
+        if d["type"] == "has_unresolved_route"
+    ]
+    assert len(unresolved) == 1
+    # Direction matches signal flow (phantom source -> receiving track) and the
+    # edge carries the same per-send attributes as resolved sends_to edges.
+    phantom, receiver, data = unresolved[0]
+    assert phantom == bus_nodes[0]
+    assert graph.nodes[receiver]["type"] == "track"
+    assert data["send_mode"] == 0
+    assert data["volume_db"] == 0.0
 
 
 def test_graph_to_dict_roundtrips_structure():

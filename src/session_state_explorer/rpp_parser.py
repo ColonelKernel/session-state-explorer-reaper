@@ -37,8 +37,10 @@ from .utils import (
 )
 
 _QUOTE_CHARS = "\"'`"
-# Block openers whose first token denotes an FX processor.
-_FX_TAGS = {"VST", "JS", "AU", "AUFX", "CLAP", "LV2", "DX"}
+# Block openers whose first token denotes an FX processor. VST/AU/JS/DX prefixes
+# are corroborated by the SDK's TrackFX naming docs, CLAP likewise; VIDEO_EFFECT
+# is REAPER's video processor (sdk/video_processor.h).
+_FX_TAGS = {"VST", "JS", "AU", "AUFX", "CLAP", "LV2", "DX", "VIDEO_EFFECT"}
 
 
 # ---------------------------------------------------------------------------
@@ -100,9 +102,25 @@ class _Frame:
     track: Optional[TrackState] = None
     item: Optional[MediaItemState] = None
     fx: Optional[FxState] = None
-    # FX-chain bookkeeping: a BYPASS line precedes the FX block it applies to.
+    # FX-chain bookkeeping: BYPASS lines precede the FX block they apply to.
     pending_enabled: Optional[bool] = None
+    pending_offline: Optional[bool] = None
     last_fx: Optional[FxState] = None
+    # "main" for a regular <FXCHAIN>, "rec" for <FXCHAIN_REC> (record-input FX).
+    chain: str = "main"
+
+
+@dataclass
+class _PendingRoute:
+    """An AUXRECV observation awaiting track-index resolution."""
+
+    dest_index: int  # the receiving track (where the AUXRECV line lives)
+    src_index: int  # source track index referenced by the line
+    send_mode: Optional[int]
+    volume: Optional[float]
+    pan: Optional[float]
+    mute: Optional[bool]
+    raw_line: str
 
 
 @dataclass
@@ -110,8 +128,9 @@ class _State:
     project: ProjectState
     stack: List[_Frame] = field(default_factory=list)
     track_count: int = 0
-    # Deferred AUXRECV resolution: (dest_track_index, src_track_index, raw_line).
-    pending_routes: List[Tuple[int, int, str]] = field(default_factory=list)
+    pending_routes: List[_PendingRoute] = field(default_factory=list)
+    # One-shot flag so the colour byte-order caveat is warned once per project.
+    color_platform_warned: bool = False
 
     def top(self) -> Optional[_Frame]:
         return self.stack[-1] if self.stack else None
@@ -195,6 +214,13 @@ def _open_block(state: _State, stripped: str, raw_line: str) -> None:
     top = state.top()
 
     if tag == "REAPER_PROJECT":
+        # Header looks like: <REAPER_PROJECT 0.1 "7.0/win64" 1700000000
+        # The quoted token records the authoring REAPER version/platform, which we
+        # need to disambiguate the OS-dependent track-colour byte order.
+        header_parts = stripped[1:].split(None, 1)
+        header_tokens = _tokenize(header_parts[1]) if len(header_parts) > 1 else []
+        if len(header_tokens) > 1:
+            state.project.header_platform = header_tokens[1]
         state.stack.append(_Frame(kind="project"))
         return
 
@@ -219,23 +245,70 @@ def _open_block(state: _State, stripped: str, raw_line: str) -> None:
     if tag == "SOURCE":
         item_frame = state.nearest("item")
         if item_frame and item_frame.item is not None:
-            # Source type is the tag argument, e.g. "<SOURCE WAVE".
+            # Source type is the tag argument, e.g. "<SOURCE WAVE". Stored
+            # verbatim: stock types are already uppercase and plug-in-defined
+            # types are matched case-sensitively, so normalising could corrupt.
             source_type = stripped[1:].split(None, 2)
             if len(source_type) >= 2 and item_frame.item.source_type is None:
-                item_frame.item.source_type = source_type[1].upper()
+                item_frame.item.source_type = source_type[1]
         state.stack.append(_Frame(kind="source", item=item_frame.item if item_frame else None))
         return
 
     if tag in {"FXCHAIN", "FXCHAIN_REC"}:
-        state.stack.append(_Frame(kind="fxchain"))
+        state.stack.append(
+            _Frame(kind="fxchain", chain="rec" if tag == "FXCHAIN_REC" else "main")
+        )
         return
 
     if tag in _FX_TAGS and state.nearest("fxchain") is not None:
         _open_fx(state, tag, stripped, raw_line)
         return
 
-    # Anything else (RENDER_CFG, envelopes, plug-in chunks, master FX, ...) is a
-    # block we don't model. Push an opaque frame so nesting stays balanced.
+    if tag == "CONTAINER" and state.nearest("fxchain") is not None:
+        # REAPER v7 FX container: record it as an FX entry (consuming the
+        # preceding BYPASS state via _open_fx), then give the frame
+        # fxchain-style bookkeeping so child BYPASS/PRESETNAME lines are
+        # scoped to the container instead of leaking or being dropped.
+        parent_chain = state.nearest("fxchain")
+        _open_fx(state, tag, stripped, raw_line)
+        frame = state.top()
+        if frame is not None and frame.kind == "fx":
+            frame.kind = "fxchain"
+            frame.chain = parent_chain.chain if parent_chain else "main"
+            track_frame = state.nearest("track")
+            track_label = (
+                track_frame.track.name or track_frame.track.id
+                if track_frame and track_frame.track
+                else "unknown track"
+            )
+            state.project.warnings.append(
+                f"FX container on track '{track_label}' flattened: its child FX are "
+                "listed alongside top-level FX; the hierarchy itself is not modelled."
+            )
+        return
+
+    if tag == "TAKEFX":
+        item_frame = state.nearest("item")
+        item_label = (
+            (item_frame.item.name or item_frame.item.id)
+            if item_frame and item_frame.item
+            else "unknown item"
+        )
+        state.project.warnings.append(
+            f"Per-take FX on item '{item_label}' are not modelled and were skipped."
+        )
+        state.stack.append(_Frame(kind="unknown"))
+        return
+
+    if tag == "MASTERFXLIST":
+        state.project.warnings.append(
+            "Master-track FX are not modelled and were skipped."
+        )
+        state.stack.append(_Frame(kind="unknown"))
+        return
+
+    # Anything else (RENDER_CFG, envelopes, plug-in chunks, ...) is a block we
+    # don't model. Push an opaque frame so nesting stays balanced.
     state.stack.append(_Frame(kind="unknown"))
 
 
@@ -256,9 +329,13 @@ def _open_fx(state: _State, tag: str, stripped: str, raw_line: str) -> None:
         )
 
     enabled = True
-    if fxchain is not None and fxchain.pending_enabled is not None:
-        enabled = fxchain.pending_enabled
-        fxchain.pending_enabled = None
+    offline: Optional[bool] = None
+    if fxchain is not None:
+        if fxchain.pending_enabled is not None:
+            enabled = fxchain.pending_enabled
+            fxchain.pending_enabled = None
+        offline = fxchain.pending_offline
+        fxchain.pending_offline = None
 
     fx = FxState(
         id=f"fx-{track.index}-{len(track.fx)}",
@@ -268,6 +345,8 @@ def _open_fx(state: _State, tag: str, stripped: str, raw_line: str) -> None:
         fx_type=tag,
         family=classify_fx_family(name),
         enabled=enabled,
+        offline=offline,
+        chain=fxchain.chain if fxchain is not None else "main",
         raw_line=raw_line.rstrip(),
     )
     track.fx.append(fx)
@@ -282,9 +361,17 @@ def _extract_fx_name(stripped: str, tag: str) -> Optional[str]:
     body = stripped[1:]  # drop leading '<'
     # Remove the tag token itself.
     _, remainder = _parse_first_token(body)
-    for token in _tokenize(remainder):
-        if token and token.strip():
-            return token.strip()
+    tokens = [t.strip() for t in _tokenize(remainder)]
+    if tag == "CONTAINER" and tokens and tokens[0] == "Container":
+        # REAPER 7 serialises containers as `<CONTAINER Container "<name>"`:
+        # the first argument is always the literal word "Container" and the
+        # user-visible name is the second (an empty string when unnamed).
+        if len(tokens) > 1 and tokens[1]:
+            return tokens[1]
+        return "Container"
+    for token in tokens:
+        if token:
+            return token
     return None
 
 
@@ -296,10 +383,21 @@ def _scalar_line(state: _State, stripped: str, raw_line: str) -> None:
 
     # ----- project-level settings -----
     if key == "TEMPO":
-        state.project.tempo = safe_float(rest.split()[0]) if rest else None
+        tokens = rest.split()
+        state.project.tempo = safe_float(tokens[0]) if tokens else None
+        if len(tokens) > 1:
+            state.project.time_sig_num = safe_int(tokens[1])
+        if len(tokens) > 2:
+            state.project.time_sig_denom = safe_int(tokens[2])
         return
     if key == "SAMPLERATE":
-        state.project.sample_rate = safe_int(rest.split()[0]) if rest else None
+        tokens = rest.split()
+        state.project.sample_rate = safe_int(tokens[0]) if tokens else None
+        if len(tokens) > 1:
+            # "Use project sample rate" flag; when 0 the stored rate is
+            # informational only and the device rate wins.
+            flag = safe_int(tokens[1])
+            state.project.sample_rate_use = flag != 0 if flag is not None else None
         return
 
     # ----- names: dispatch by current context -----
@@ -342,6 +440,15 @@ def _scalar_line(state: _State, stripped: str, raw_line: str) -> None:
     if key == "AUXRECV":
         _handle_auxrecv(state, rest, raw_line)
         return
+    if key == "HWOUT":
+        track_frame = state.nearest("track")
+        if track_frame is not None and track_frame.track is not None:
+            label = track_frame.track.name or track_frame.track.id
+            state.project.warnings.append(
+                f"Track '{label}' routes to a hardware output (HWOUT); hardware "
+                "routing is not modelled in the graph."
+            )
+        return
 
 
 def _track_scalar(state: _State, key: str, rest: str) -> bool:
@@ -351,6 +458,8 @@ def _track_scalar(state: _State, key: str, rest: str) -> bool:
         return False
 
     if key == "VOLPAN":
+        # VOLPAN <vol> <pan> <pan_law> <pan_law_flags> <width> (field layout is
+        # format knowledge; the value semantics are SDK D_VOL/D_PAN/D_PANLAW/D_WIDTH).
         tokens = rest.split()
         if tokens:
             vol = safe_float(tokens[0])
@@ -358,20 +467,58 @@ def _track_scalar(state: _State, key: str, rest: str) -> bool:
             track.volume_db = linear_to_db(vol)
         if len(tokens) > 1:
             track.pan = safe_float(tokens[1])
+        if len(tokens) > 2:
+            track.pan_law = safe_float(tokens[2])
+        if len(tokens) > 4:
+            track.width = safe_float(tokens[4])
         return True
 
     if key == "MUTESOLO":
+        # MUTESOLO <mute> <solo> <solo_defeat>. Solo is multi-state (SDK I_SOLO:
+        # 1=solo, 2=solo in place, 5/6=safe variants); we keep the raw value in
+        # solo_mode and expose the boolean projection as solo.
         tokens = rest.split()
         if tokens:
             track.mute = safe_int(tokens[0]) not in (0, None)
         if len(tokens) > 1:
-            track.solo = safe_int(tokens[1]) not in (0, None)
+            solo_raw = safe_int(tokens[1])
+            track.solo = solo_raw not in (0, None)
+            track.solo_mode = solo_raw
+        if len(tokens) > 2:
+            track.solo_defeat = safe_int(tokens[2]) not in (0, None)
+        return True
+
+    if key == "PANMODE":
+        tokens = rest.split()
+        if tokens:
+            track.pan_mode = safe_int(tokens[0])
+        return True
+
+    if key == "MAINSEND":
+        # First token: whether the track sends audio to its parent/master
+        # (SDK B_MAINSEND semantics; the .rpp token layout is format knowledge).
+        tokens = rest.split()
+        if tokens:
+            track.main_send = safe_int(tokens[0]) not in (0, None)
         return True
 
     if key == "PEAKCOL":
         tokens = rest.split()
         if tokens:
-            track.color = decode_color(safe_int(tokens[0]))
+            packed = safe_int(tokens[0])
+            swell = _swell_platform(state.project.header_platform)
+            if (
+                packed is not None
+                and packed & 0x1000000
+                and swell is None
+                and not state.color_platform_warned
+            ):
+                state.color_platform_warned = True
+                state.project.warnings.append(
+                    "Track colour byte order assumed to be the Windows layout "
+                    "(authoring platform unknown); red/blue may be swapped."
+                )
+            track.color = decode_color(packed, swell_order=bool(swell))
         return True
 
     if key == "BYPASS":
@@ -380,6 +527,10 @@ def _track_scalar(state: _State, key: str, rest: str) -> bool:
             tokens = rest.split()
             bypassed = bool(tokens) and safe_int(tokens[0]) not in (0, None)
             fxchain.pending_enabled = not bypassed
+            if len(tokens) > 1:
+                # Second token: plug-in offline state, independent of bypass
+                # (SDK TrackFX_Get/SetOffline).
+                fxchain.pending_offline = safe_int(tokens[1]) not in (0, None)
         return True
 
     if key == "PRESETNAME":
@@ -394,6 +545,27 @@ def _track_scalar(state: _State, key: str, rest: str) -> bool:
     return False
 
 
+def _swell_platform(header: Optional[str]) -> Optional[bool]:
+    """Classify the project-header platform token for colour byte order.
+
+    Returns ``True`` for SWELL platforms (macOS/Linux, R in the high byte),
+    ``False`` for Windows (R in the low byte), ``None`` when unknown.
+    """
+
+    if not header:
+        return None
+    lowered = header.lower()
+    # SWELL tokens are checked first: "darwin" contains the substring "win",
+    # so the Windows check must not run before it.
+    if any(token in lowered for token in ("osx", "macos", "darwin", "linux")):
+        return True
+    # "x64" covers legacy Windows headers (e.g. "5.983/x64"); macOS builds of
+    # that era wrote "OSX64", which the SWELL check above already caught.
+    if "win" in lowered or "x64" in lowered:
+        return False
+    return None
+
+
 def _handle_auxrecv(state: _State, rest: str, raw_line: str) -> None:
     track_frame = state.nearest("track")
     if track_frame is None or track_frame.track is None:
@@ -406,10 +578,24 @@ def _handle_auxrecv(state: _State, rest: str, raw_line: str) -> None:
     src_index = safe_int(tokens[0]) if tokens else None
     if src_index is None:
         state.project.warnings.append(
-            "Could not resolve target track for AUXRECV line."
+            "Could not resolve source track for AUXRECV line."
         )
         return
-    state.pending_routes.append((dest_index, src_index, raw_line.rstrip()))
+    # AUXRECV <src> <mode> <vol> <pan> <mute> ... — token positions past <src>
+    # are format knowledge; each is parsed tolerantly and left None when absent.
+    # Value semantics per SDK GetSetTrackSendInfo (I_SENDMODE/D_VOL/D_PAN/B_MUTE).
+    mute_token = safe_int(tokens[4]) if len(tokens) > 4 else None
+    state.pending_routes.append(
+        _PendingRoute(
+            dest_index=dest_index,
+            src_index=src_index,
+            send_mode=safe_int(tokens[1]) if len(tokens) > 1 else None,
+            volume=safe_float(tokens[2]) if len(tokens) > 2 else None,
+            pan=safe_float(tokens[3]) if len(tokens) > 3 else None,
+            mute=(mute_token != 0) if mute_token is not None else None,
+            raw_line=raw_line.rstrip(),
+        )
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -418,11 +604,18 @@ def _handle_auxrecv(state: _State, rest: str, raw_line: str) -> None:
 
 def _resolve_routes(state: _State) -> None:
     tracks = state.project.tracks
-    for route_idx, (dest_index, src_index, raw) in enumerate(state.pending_routes):
+    for route_idx, pending in enumerate(state.pending_routes):
         route_id = f"route-{route_idx}"
-        if 0 <= src_index < len(tracks) and 0 <= dest_index < len(tracks):
-            source = tracks[src_index]
-            target = tracks[dest_index]
+        send_fields = dict(
+            send_mode=pending.send_mode,
+            volume=pending.volume,
+            volume_db=linear_to_db(pending.volume),
+            pan=pending.pan,
+            mute=pending.mute,
+        )
+        if 0 <= pending.src_index < len(tracks) and 0 <= pending.dest_index < len(tracks):
+            source = tracks[pending.src_index]
+            target = tracks[pending.dest_index]
             state.project.routes.append(
                 RouteState(
                     id=route_id,
@@ -430,31 +623,34 @@ def _resolve_routes(state: _State) -> None:
                     target_track_id=target.id,
                     target_name=target.name,
                     route_type="send",
-                    raw_line=raw,
+                    raw_line=pending.raw_line,
+                    **send_fields,
                 )
             )
         else:
             # The receiving track (where the AUXRECV lives) is always a real,
-            # parsed track; only the referenced source index is out of range. We
-            # anchor the unresolved relationship on the known track so the graph
-            # stays consistent, and flag the missing end as a warning.
-            anchor = (
-                tracks[dest_index].id
-                if 0 <= dest_index < len(tracks)
-                else (tracks[0].id if tracks else "project")
+            # parsed track; only the referenced *source* index is out of range.
+            # Keep the receiver as the route's genuine target and leave the
+            # source unresolved, so edge direction still matches signal flow.
+            target = (
+                tracks[pending.dest_index]
+                if 0 <= pending.dest_index < len(tracks)
+                else (tracks[0] if tracks else None)
             )
             state.project.routes.append(
                 RouteState(
                     id=route_id,
-                    source_track_id=anchor,
-                    target_track_id=None,
-                    target_name=f"track index {src_index} (out of range)",
+                    source_track_id=None,
+                    source_name=f"track index {pending.src_index} (out of range)",
+                    target_track_id=target.id if target is not None else None,
+                    target_name=target.name if target is not None else None,
                     route_type="unresolved",
-                    raw_line=raw,
+                    raw_line=pending.raw_line,
+                    **send_fields,
                 )
             )
             state.project.warnings.append(
-                "Could not resolve target track for AUXRECV line."
+                "Could not resolve source track for AUXRECV line."
             )
 
 

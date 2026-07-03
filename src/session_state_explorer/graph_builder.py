@@ -53,6 +53,7 @@ def build_graph(project: ProjectState) -> nx.DiGraph:
             pan=track.pan,
             mute=track.mute,
             solo=track.solo,
+            main_send=track.main_send,
             color=track.color,
             n_fx=len(track.fx),
             n_items=len(track.media_items),
@@ -103,6 +104,8 @@ def build_graph(project: ProjectState) -> nx.DiGraph:
                 fx_type=fx.fx_type,
                 family=fx.family,
                 enabled=fx.enabled,
+                offline=fx.offline,
+                chain=fx.chain,
                 preset=fx.preset,
             )
             graph.add_edge(track_node, fx_node, type="processes_with")
@@ -110,23 +113,33 @@ def build_graph(project: ProjectState) -> nx.DiGraph:
     # Routing.
     for route in project.routes:
         route_node = route.id
-        if route.route_type == "unresolved" or route.target_track_id is None:
+        if route.route_type == "unresolved" or route.source_track_id is None:
             unresolved_count += 1
+            # The unresolved end of an AUXRECV is the *source*; the receiving
+            # track is real. Point the phantom node at the anchor so edge
+            # direction still matches signal flow.
             graph.add_node(
                 route_node,
                 id=route_node,
-                label=route.target_name or "Unresolved send target",
+                label=route.source_name or "Unresolved send source",
                 type="bus_or_target",
                 resolved=False,
             )
             # Anchor on a real node; fall back to the project node if the parser's
             # anchor is somehow missing, so we never create a typeless phantom node.
-            anchor = route.source_track_id if route.source_track_id in graph else PROJECT_NODE_ID
+            anchor = (
+                route.target_track_id
+                if route.target_track_id in graph
+                else PROJECT_NODE_ID
+            )
             graph.add_edge(
-                anchor,
                 route_node,
+                anchor,
                 type="has_unresolved_route",
                 route_id=route.id,
+                send_mode=route.send_mode,
+                volume_db=route.volume_db,
+                mute=route.mute,
             )
         else:
             # A resolved send is a direct edge between two track nodes.
@@ -136,6 +149,9 @@ def build_graph(project: ProjectState) -> nx.DiGraph:
                 type="sends_to",
                 route_id=route.id,
                 route_node=route_node,
+                send_mode=route.send_mode,
+                volume_db=route.volume_db,
+                mute=route.mute,
             )
 
     graph.graph.update(
