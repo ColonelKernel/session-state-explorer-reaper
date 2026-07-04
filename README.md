@@ -1,5 +1,10 @@
 # Session State Explorer v0
 
+[![Tests](https://github.com/ColonelKernel/session-state-explorer/actions/workflows/tests.yml/badge.svg)](https://github.com/ColonelKernel/session-state-explorer/actions/workflows/tests.yml)
+[![Release](https://img.shields.io/github/v/release/ColonelKernel/session-state-explorer)](https://github.com/ColonelKernel/session-state-explorer/releases)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue)](pyproject.toml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+
 **Interpretable DAW-state graphs for human-centered AI-assisted music production.**
 
 Session State Explorer is a small research prototype that parses a [REAPER](https://www.reaper.fm/)

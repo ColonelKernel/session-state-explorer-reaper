@@ -55,12 +55,24 @@ TRACK_ROLE_KEYWORDS: List[tuple[str, List[str]]] = [
     # Buses first: a "vocal bus" should read as a Bus, not a Vocal track.
     ("Bus", ["bus", "group", "aux", "return", "submix", "verb", "delay"]),
     ("Vocal", ["lead vox", "bgv", "vocal", "vox", "voice"]),
-    ("Drums", ["drum", "kick", "snare", "hat", "tom", "perc", "percussion", "cymbal"]),
+    (
+        "Drums",
+        ["drum", "kick", "snare", "hat", "tom", "perc", "percussion", "cymbal", "overhead"],
+    ),
     ("Bass", ["bass", "sub", "808"]),
     ("Guitar", ["guitar", "gtr"]),
-    ("Keys", ["keys", "piano", "rhodes", "organ", "synth", "pad"]),
+    ("Keys", ["keys", "piano", "rhodes", "organ", "synth", "pad", "nord", "mellotron"]),
     ("FX", ["riser", "impact", "noise", "sweep", "whoosh", "fx"]),
 ]
+
+# Short/ambiguous role keywords that must match a whole token, not a substring
+# ("oh" for drum overheads would otherwise match inside "john"). Checked only
+# after the substring pass above finds nothing.
+TRACK_ROLE_TOKEN_KEYWORDS: List[tuple[str, List[str]]] = [
+    ("Drums", ["oh"]),
+]
+
+_TOKEN_SPLIT_RE = re.compile(r"[^a-z0-9]+")
 
 # Families considered "ambience-like" and "dynamics-like" / "eq-like" for the
 # recommendation engine and session fingerprint.
@@ -91,6 +103,10 @@ def classify_track_role(name: Optional[str]) -> str:
     lowered = name.lower()
     for role, keywords in TRACK_ROLE_KEYWORDS:
         if any(keyword in lowered for keyword in keywords):
+            return role
+    tokens = set(_TOKEN_SPLIT_RE.split(lowered))
+    for role, keywords in TRACK_ROLE_TOKEN_KEYWORDS:
+        if any(keyword in tokens for keyword in keywords):
             return role
     return "Unknown"
 

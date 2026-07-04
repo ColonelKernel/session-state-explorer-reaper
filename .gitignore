@@ -41,3 +41,6 @@ reaper-plugins/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Generated demo recordings (produced locally with playwright + ffmpeg)
+docs/demo/
