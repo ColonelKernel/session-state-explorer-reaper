@@ -55,6 +55,13 @@ to (by node id), a candidate action, and an explicit caveat. There is no black b
 claim of objectivity — the heuristics are scaffolding for a future, more capable, and
 evaluated reasoning layer.
 
+The suggestions are additionally **literature-grounded**: candidate actions name concrete
+stock processors and canonical workflows drawn from the official REAPER User Guide and the
+ReaEffects Guide, and every such recommendation carries page citations
+(`reaper_fx_knowledge.py`). Provenance matters for explainability — a suggestion the user
+can trace to a documented practice is inspectable and contestable in a way that free-form
+generated advice is not.
+
 ## Human-centered AI-assisted production
 
 A consistent design commitment runs through the prototype: **assistance, not automation.**

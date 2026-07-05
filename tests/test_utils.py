@@ -2,7 +2,22 @@
 
 from __future__ import annotations
 
-from session_state_explorer.utils import classify_track_role
+from session_state_explorer.utils import classify_fx_family, classify_track_role
+
+
+def test_fx_metering_family():
+    assert classify_fx_family("JS: analysis/loudness_meter") == "Metering"
+    assert classify_fx_family("Frequency Analyzer") == "Metering"
+    assert classify_fx_family("SPAN Spectrum Analyzer") == "Metering"
+
+
+def test_fx_eq_keyword_matches_tokens_not_substrings():
+    # "eq" inside "frequency" must not classify as EQ...
+    assert classify_fx_family("Frequency Shifter Thing") != "EQ"
+    # ...but a real bare "EQ" token still does, and stock names stay stable.
+    assert classify_fx_family("SSL EQ") == "EQ"
+    assert classify_fx_family("VST: ReaEQ (Cockos)") == "EQ"
+    assert classify_fx_family("VST3: Pro-Q 3 (FabFilter)") == "EQ"
 
 
 def test_real_session_names_classify():

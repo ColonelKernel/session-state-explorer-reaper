@@ -510,6 +510,8 @@ def _recommendations_section(recommendations) -> None:
             st.markdown(f"**Why:** {rec.explanation}")
             st.markdown(f"**Suggested action:** {rec.suggested_action}")
             st.markdown(f"**Caveat:** _{rec.caveat}_")
+            if rec.references:
+                st.caption("Grounding: " + "; ".join(rec.references))
             if rec.related_node_ids:
                 st.caption("Related nodes: " + ", ".join(rec.related_node_ids[:12]))
 

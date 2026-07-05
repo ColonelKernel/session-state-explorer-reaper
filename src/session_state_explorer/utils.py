@@ -24,7 +24,7 @@ from typing import List, Optional
 # Keywords are matched case-insensitively as substrings of the name.
 
 FX_FAMILY_KEYWORDS: List[tuple[str, List[str]]] = [
-    ("EQ", ["pro-q", "channel eq", "equalizer", "equaliser", "eq"]),
+    ("EQ", ["pro-q", "channel eq", "equalizer", "equaliser"]),
     (
         "Dynamics",
         [
@@ -48,7 +48,8 @@ FX_FAMILY_KEYWORDS: List[tuple[str, List[str]]] = [
     ),
     ("Modulation", ["chorus", "flanger", "phaser", "tremolo", "ensemble"]),
     ("Pitch", ["pitch", "autotune", "auto-tune", "melodyne", "harmonizer", "harmoniser"]),
-    ("Utility", ["gain", "trim", "meter", "analyzer", "analyser", "utility"]),
+    ("Metering", ["meter", "analyzer", "analyser", "scope", "spectrograph"]),
+    ("Utility", ["gain", "trim", "utility"]),
 ]
 
 TRACK_ROLE_KEYWORDS: List[tuple[str, List[str]]] = [
@@ -65,11 +66,16 @@ TRACK_ROLE_KEYWORDS: List[tuple[str, List[str]]] = [
     ("FX", ["riser", "impact", "noise", "sweep", "whoosh", "fx"]),
 ]
 
-# Short/ambiguous role keywords that must match a whole token, not a substring
-# ("oh" for drum overheads would otherwise match inside "john"). Checked only
-# after the substring pass above finds nothing.
+# Short/ambiguous keywords that must match a whole token, not a substring
+# ("oh" for drum overheads would otherwise match inside "john"; "eq" would
+# match inside "frequency"). Checked only after the substring pass finds
+# nothing.
 TRACK_ROLE_TOKEN_KEYWORDS: List[tuple[str, List[str]]] = [
     ("Drums", ["oh"]),
+]
+
+FX_FAMILY_TOKEN_KEYWORDS: List[tuple[str, List[str]]] = [
+    ("EQ", ["eq"]),
 ]
 
 _TOKEN_SPLIT_RE = re.compile(r"[^a-z0-9]+")
@@ -84,13 +90,26 @@ VOCAL_ROLE_KEYWORDS = ["vocal", "vox", "voice", "bgv", "lead vox"]
 
 
 def classify_fx_family(name: Optional[str]) -> str:
-    """Return a coarse FX family for a processor name (``"Unknown"`` if no match)."""
+    """Return a coarse FX family for a processor name (``"Unknown"`` if no match).
+
+    Stock REAPER processors are identified authoritatively via the guide-derived
+    knowledge table; everything else falls back to keyword heuristics.
+    """
 
     if not name:
         return "Unknown"
+    from .reaper_fx_knowledge import lookup_stock_fx
+
+    stock = lookup_stock_fx(name)
+    if stock is not None:
+        return stock.family
     lowered = name.lower()
     for family, keywords in FX_FAMILY_KEYWORDS:
         if any(keyword in lowered for keyword in keywords):
+            return family
+    tokens = set(_TOKEN_SPLIT_RE.split(lowered))
+    for family, keywords in FX_FAMILY_TOKEN_KEYWORDS:
+        if any(keyword in tokens for keyword in keywords):
             return family
     return "Unknown"
 

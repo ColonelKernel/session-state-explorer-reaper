@@ -121,6 +121,9 @@ keyword family (EQ, Dynamics, Ambience, Saturation, Modulation, Pitch, Utility, 
 
 Value semantics (volume scaling, solo modes, send modes, the custom-colour "in use" flag
 and its OS-dependent byte order) follow the official REAPER extension SDK documentation.
+Stock Cockos processors are identified via a guide-derived knowledge table
+(`reaper_fx_knowledge.py`, page-cited); third-party plug-ins fall back to keyword
+heuristics.
 
 ## 8. Graph schema overview
 
@@ -135,17 +138,35 @@ unresolved (partially observed) elements, number of warnings.
 
 ## 9. Recommendation examples
 
-Five heuristic rules, each producing a caveated `Recommendation`:
+Eleven heuristic rules, each producing a caveated `Recommendation`. Suggestions are
+**REAPER-native and literature-grounded**: they name stock processors and canonical
+workflows, and each carries page citations into the official REAPER User Guide and the
+ReaEffects Guide (see `reaper_fx_knowledge.py`).
 
 1. **Shared ambience bus** — several tracks use reverb/delay individually with no shared
-   return → suggest a shared ambience bus.
-2. **Vocal chain** — a vocal-named track lacks common vocal-processing elements → suggest
-   reviewing EQ / compression / de-essing / ambience.
-3. **Dense FX chain** — a track carries more than six processors → suggest labelling or
-   splitting corrective vs. creative processing.
-4. **Missing bus structure** — many tracks (> 8) with no routing detected → suggest groups.
-5. **Level imbalance** — one audio item is much hotter than the project median → suggest a
-   gain-staging check.
+   return → the User Guide's FX-Bus recipe (§2.14) with ReaVerbate / ReaVerb / ReaDelay
+   on the return.
+2. **Vocal chain** — a vocal-named track lacks common vocal-processing elements → stock
+   candidates per missing element (ReaEQ, ReaComp with the guide's ballad settings,
+   ReaFir-as-de-esser, an ambience send).
+3. **Dense FX chain** — more than six processors → Performance Meter audit, offline vs.
+   bypass, partial freeze, explicit parallel chains.
+4. **Missing bus structure** — many tracks, no routing → folders vs. FX bus vs. VCA, with
+   the guide's own preference.
+5. **Level imbalance** — stems much hotter than the project median → JS Loudness Meter,
+   preferring LUFS.
+6. **All FX offline** — the fingerprint of REAPER's crash-recovery mode.
+7. **Muted / near-silent sends** — routing edges that carry nothing (hygiene flag).
+8. **Bypassed-but-online FX** — parked processors that still cost CPU → offline or freeze.
+9. **Manual submix** — sources with master-send disabled converging on one bus → the
+   guide-preferred folder-track structure.
+10. **Clipping-risk stems** — source peaks at full scale → true-peak check, ReaLimit.
+11. **Meters in the render path** — analysis-only plug-ins in ordinary chains → the
+    Monitoring FX chain.
+
+Example of a grounded suggestion (rule 9): _“Select the member tracks and right-click >
+'Move tracks to folder' … folder volume/FX then govern the submix.”_ — Grounding:
+_REAPER User Guide, §5.12-5.13, pp. 98-101._
 
 Every recommendation ends with: _“This is a graph-based heuristic, not an objective mixing
 rule.”_
@@ -154,7 +175,7 @@ rule.”_
 
 ```json
 {
-  "schema_version": "0.2.0",
+  "schema_version": "0.3.0",
   "project": { "...": "parsed ProjectState" },
   "graph": { "nodes": [], "edges": [], "metadata": {} },
   "descriptors": [],
@@ -190,6 +211,8 @@ caveated suggestions that keep the producer in control. See
 
 ## 13. Roadmap
 
+- A descriptor-triggered noise-reduction rule (ReaFir Subtract mode) once the
+  low-dynamic-range / high-ZCR thresholds are calibrated against labelled stems.
 - Broaden parser coverage (envelopes, take FX, item fades, tempo maps).
 - Richer, validated audio descriptors and optional Essentia high-level features.
 - Learned (not only rule-based) graph reasoning, evaluated with producers in the loop.

@@ -187,3 +187,6 @@ class Recommendation(BaseModel):
     explanation: str = ""
     suggested_action: str = ""
     caveat: str = "This is a graph-based heuristic, not an objective mixing rule."
+    # Literature grounding: citations into the official REAPER guides backing
+    # the suggested action (e.g. "REAPER User Guide, §2.14, pp. 43-44").
+    references: List[str] = Field(default_factory=list)
