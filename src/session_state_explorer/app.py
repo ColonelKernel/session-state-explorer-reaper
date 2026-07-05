@@ -47,6 +47,7 @@ from session_state_explorer.fingerprint import (
     compute_session_fingerprint,
 )
 from session_state_explorer.graph_builder import build_graph
+from session_state_explorer.mixer import build_console, render_console_html
 from session_state_explorer.models import AudioDescriptorSet
 from session_state_explorer.recommendations import generate_recommendations
 from session_state_explorer.rpp_parser import parse_rpp
@@ -261,14 +262,23 @@ def main() -> None:
 
     recommendations = generate_recommendations(project, graph, descriptors)
 
-    _summary_section(project, graph)
-    _graph_section(graph, project)
-    _tables_section(project)
-    _descriptors_section(descriptors)
-    _recommendations_section(recommendations)
-    _export_section(project, graph, descriptors, recommendations)
-    _fingerprint_section(project, descriptors)
-    _framing_section()
+    _overview_band(project, graph, recommendations)
+
+    mixer_tab, flow_tab, notes_tab, data_tab = st.tabs(
+        ["🎚 Mixer", "🔀 Signal flow", "📝 Mix notes", "🔬 Data & research"]
+    )
+    with mixer_tab:
+        _mixer_section(project, descriptors)
+    with flow_tab:
+        _graph_section(graph, project)
+    with notes_tab:
+        _recommendations_section(recommendations, project)
+    with data_tab:
+        _tables_section(project)
+        _descriptors_section(descriptors)
+        _export_section(project, graph, descriptors, recommendations)
+        _fingerprint_section(project, descriptors)
+        _framing_section()
 
 
 def _sidebar() -> None:
@@ -379,37 +389,129 @@ assistance.
     _framing_section()
 
 
-def _summary_section(project, graph) -> None:
-    st.subheader("Parsed session summary")
+def _overview_band(project, graph, recommendations) -> None:
+    """Compact at-a-glance header of the metrics a mixing engineer cares about."""
+
     meta = graph.graph
+    n_buses = sum(1 for t in project.tracks if (t.role or "") == "Bus")
+    tempo = f"{project.tempo:g}" if project.tempo else "—"
+    if project.tempo and project.time_sig_num and project.time_sig_denom:
+        tempo = f"{project.tempo:g} · {project.time_sig_num}/{project.time_sig_denom}"
+    n_warn = sum(1 for r in recommendations if r.severity == "warning")
+
     cols = st.columns(6)
     cols[0].metric("Tracks", meta.get("n_tracks", 0))
-    cols[1].metric("Media items", meta.get("n_media_items", 0))
-    cols[2].metric("FX", meta.get("n_fx", 0))
-    cols[3].metric("Routes", meta.get("n_routes", 0))
-    cols[4].metric("Tempo", project.tempo or "—")
-    cols[5].metric("Uncertain", meta.get("n_unresolved", 0))
+    cols[1].metric("Buses", n_buses)
+    cols[2].metric("Sends", meta.get("n_routes", 0))
+    cols[3].metric("FX", meta.get("n_fx", 0))
+    cols[4].metric("Tempo", tempo)
+    cols[5].metric(
+        "Flags",
+        n_warn,
+        help="Warning-level mix notes (see the Mix notes tab).",
+        delta=None,
+    )
 
-    if project.tracks:
-        names = ", ".join(t.name or t.id for t in project.tracks)
-        st.markdown(f"**Tracks:** {names}")
-
+    chips = []
+    if meta.get("n_unresolved"):
+        chips.append(f"🟤 {meta['n_unresolved']} uncertain element(s)")
     if project.warnings:
-        with st.expander(f"⚠️ Parser warnings ({len(project.warnings)})", expanded=False):
+        chips.append(f"⚠️ {len(project.warnings)} parser warning(s)")
+    if chips:
+        with st.expander(" · ".join(chips), expanded=False):
             for warning in project.warnings:
                 st.write(f"- {warning}")
 
 
+def _mixer_section(project, descriptors) -> None:
+    if not project.tracks:
+        st.info("No tracks parsed — nothing to show on the console.")
+        return
+    st.caption(
+        "Channel-strip console — level, pan, mute/solo, the insert rack (top→bottom in "
+        "chain order), and sends. Scroll horizontally for more channels."
+    )
+    console = build_console(project)
+    st.markdown(render_console_html(console), unsafe_allow_html=True)
+
+    # Per-track inspector (native widgets, so it can show richer detail on demand).
+    with st.expander("Inspect a channel", expanded=False):
+        by_name = {s.name: s for s in console.strips}
+        chosen = st.selectbox("Track", list(by_name.keys()), key="mixer_inspect")
+        strip = by_name[chosen]
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Volume", strip.volume_db_label)
+        c2.metric("Pan", strip.pan_label)
+        c3.metric("Inserts", len(strip.fx))
+        st.markdown(
+            "**Roles:** " + ", ".join(strip.roles)
+            + (f" · receives {strip.receives} send(s)" if strip.receives else "")
+        )
+        if strip.fx:
+            st.markdown("**Insert chain (in order):**")
+            for i, fx in enumerate(strip.fx, start=1):
+                state = "" if fx.enabled and not fx.offline else f" _({fx.state_label})_"
+                line = f"{i}. `{fx.family}` {fx.name}{state}"
+                if fx.purpose:
+                    line += f" — {fx.purpose}"
+                st.markdown(line)
+        if strip.sends:
+            st.markdown("**Sends:**")
+            for send in strip.sends:
+                db = "" if send.volume_db is None else f", {send.volume_db:+.1f} dB"
+                flag = " ⚠️ unresolved" if send.unresolved else (" (muted)" if send.muted else "")
+                st.markdown(f"- → {send.target} ({send.mode}{db}){flag}")
+        # That track's audio descriptors, if any resolved to its media.
+        track_audio = [
+            d for d in descriptors
+            if d.available and d.file_path
+            and any(
+                (item.source_file and os.path.basename(item.source_file) == os.path.basename(d.file_path))
+                for t in project.tracks if t.id == strip.track_id
+                for item in t.media_items
+            )
+        ]
+        if track_audio:
+            st.markdown("**Audio (this channel):**")
+            st.dataframe(
+                _descriptors_dataframe(track_audio),
+                use_container_width=True,
+                hide_index=True,
+            )
+
+
+# Graph resolutions: each is a named lens over the same graph. Routing and Processing
+# use a layered left-to-right layout (signal flow); Detail keeps the physics view.
+_GRAPH_RESOLUTIONS = {
+    "Routing — tracks, buses & sends": {
+        "filters": dict(show_media_items=False, show_audio_files=False, show_fx=False, show_routes=True),
+        "hierarchical": True,
+    },
+    "Processing — tracks & FX": {
+        "filters": dict(show_media_items=False, show_audio_files=False, show_fx=True, show_routes=False),
+        "hierarchical": True,
+    },
+    "Detail — everything": {
+        "filters": dict(show_media_items=True, show_audio_files=True, show_fx=True, show_routes=True),
+        "hierarchical": False,
+    },
+}
+
+
 def _graph_section(graph, project) -> None:
-    st.subheader("DAW-state graph")
+    st.caption(
+        "The session as a signal-flow graph. **Routing** and **Processing** read "
+        "left→right like a console; **Detail** is the full force-directed view."
+    )
 
     controls, legend = st.columns([3, 1])
     with controls:
-        c1, c2, c3, c4 = st.columns(4)
-        show_items = c1.checkbox("Media items", value=True)
-        show_audio = c2.checkbox("Audio files", value=True)
-        show_fx = c3.checkbox("FX", value=True)
-        show_routes = c4.checkbox("Routes", value=True)
+        resolution = st.radio(
+            "Resolution",
+            list(_GRAPH_RESOLUTIONS.keys()),
+            index=0,
+            horizontal=True,
+        )
         track_options = ["(all tracks)"] + [t.name or t.id for t in project.tracks]
         chosen = st.selectbox("Focus on a single track", track_options, index=0)
         only_track = None
@@ -429,22 +531,17 @@ def _graph_section(graph, project) -> None:
                 unsafe_allow_html=True,
             )
 
-    filters = GraphFilters(
-        show_media_items=show_items,
-        show_audio_files=show_audio,
-        show_fx=show_fx,
-        show_routes=show_routes,
-        only_track=only_track,
-    )
+    spec = _GRAPH_RESOLUTIONS[resolution]
+    filters = GraphFilters(only_track=only_track, **spec["filters"])
     view = filter_graph(graph, filters)
 
     if view.number_of_nodes() == 0:
-        st.info("No nodes to display with the current filters.")
+        st.info("No nodes to display at this resolution.")
         return
 
     if PYVIS_AVAILABLE:
         try:
-            html = render_pyvis_html(view)
+            html = render_pyvis_html(view, hierarchical=spec["hierarchical"])
             components.html(html, height=660, scrolling=True)
             return
         except Exception as exc:  # pragma: no cover - defensive UI fallback
@@ -495,25 +592,47 @@ def _descriptors_section(descriptors: List[AudioDescriptorSet]) -> None:
     )
 
 
-def _recommendations_section(recommendations) -> None:
-    st.subheader("Recommendations")
+_SEVERITY_ORDER = {"warning": 0, "suggestion": 1, "info": 2}
+
+
+def _recommendations_section(recommendations, project=None) -> None:
     if not recommendations:
-        st.caption("No recommendations triggered for this session.")
+        st.success("No mix notes triggered — nothing flagged on this session.")
         return
-    st.caption(
-        "Heuristic, graph-level suggestions intended to support reflection — not to "
-        "automate mixing. Each carries an explicit caveat."
-    )
+
+    counts = {"warning": 0, "suggestion": 0, "info": 0}
     for rec in recommendations:
+        counts[rec.severity] = counts.get(rec.severity, 0) + 1
+    summary = ", ".join(
+        f"{counts[s]} {label}"
+        for s, label in (("warning", "warnings"), ("suggestion", "suggestions"), ("info", "notes"))
+        if counts.get(s)
+    )
+    st.caption(
+        f"Mix review — {summary}. Heuristic, graph-level suggestions with REAPER-native "
+        "actions and page citations. Support for reflection, not automation."
+    )
+
+    # Map track node ids -> names so notes can say which channels they concern.
+    name_by_id = {}
+    if project is not None:
+        name_by_id = {t.id: (t.name or t.id) for t in project.tracks}
+
+    ordered = sorted(
+        recommendations, key=lambda r: (_SEVERITY_ORDER.get(r.severity, 9), -r.confidence)
+    )
+    for rec in ordered:
         icon = SEVERITY_ICON.get(rec.severity, "•")
-        with st.expander(f"{icon} {rec.title}  ·  confidence {rec.confidence:.0%}"):
+        tracks = [name_by_id[nid] for nid in rec.related_node_ids if nid in name_by_id]
+        where = f"  ·  {', '.join(tracks[:4])}" if tracks else ""
+        with st.expander(f"{icon} {rec.title}  ·  {rec.confidence:.0%}{where}"):
             st.markdown(f"**Why:** {rec.explanation}")
             st.markdown(f"**Suggested action:** {rec.suggested_action}")
             st.markdown(f"**Caveat:** _{rec.caveat}_")
             if rec.references:
                 st.caption("Grounding: " + "; ".join(rec.references))
-            if rec.related_node_ids:
-                st.caption("Related nodes: " + ", ".join(rec.related_node_ids[:12]))
+            if tracks:
+                st.caption("Channels: " + ", ".join(tracks))
 
 
 def _export_section(project, graph, descriptors, recommendations) -> None:

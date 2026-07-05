@@ -123,8 +123,19 @@ def _node_tooltip(data: dict) -> str:
     return "\n".join(lines)
 
 
-def render_pyvis_html(graph: nx.DiGraph, height: str = "640px") -> str:
-    """Build draggable PyVis HTML for the (already filtered) graph."""
+def render_pyvis_html(
+    graph: nx.DiGraph,
+    height: str = "640px",
+    hierarchical: bool = False,
+    direction: str = "LR",
+) -> str:
+    """Build draggable PyVis HTML for the (already filtered) graph.
+
+    With ``hierarchical=True`` the graph is laid out as a left-to-right (or the given
+    ``direction``) layered flow — sources on the left, master/returns on the right —
+    which reads like signal flow instead of a force-directed cloud. Otherwise the
+    physics (Barnes-Hut) layout is used.
+    """
 
     if not PYVIS_AVAILABLE:  # pragma: no cover - guarded by caller
         raise RuntimeError("PyVis is not available.")
@@ -138,7 +149,26 @@ def render_pyvis_html(graph: nx.DiGraph, height: str = "640px") -> str:
         notebook=False,
         cdn_resources="in_line",
     )
-    net.barnes_hut(gravity=-12000, spring_length=120, spring_strength=0.02)
+    if hierarchical:
+        net.set_options(
+            """{
+  "layout": {
+    "hierarchical": {
+      "enabled": true,
+      "direction": "%s",
+      "sortMethod": "directed",
+      "levelSeparation": 200,
+      "nodeSpacing": 90,
+      "treeSpacing": 120
+    }
+  },
+  "physics": { "enabled": false },
+  "edges": { "smooth": { "type": "cubicBezier", "roundness": 0.5 } }
+}"""
+            % direction
+        )
+    else:
+        net.barnes_hut(gravity=-12000, spring_length=120, spring_strength=0.02)
 
     for node_id, data in graph.nodes(data=True):
         node_type = data.get("type", "unknown")
@@ -157,14 +187,19 @@ def render_pyvis_html(graph: nx.DiGraph, height: str = "640px") -> str:
             size=26 if node_type in {"project", "track"} else 16,
         )
 
+    _send_modes = {0: "post-fader", 1: "pre-FX", 2: "post-FX", 3: "post-FX"}
     for source, target, data in graph.edges(data=True):
+        edge_type = data.get("type", "")
+        label = ""
+        if edge_type == "sends_to":
+            label = _send_modes.get(data.get("send_mode"), "send")
         net.add_edge(
             source,
             target,
-            title=data.get("type", ""),
-            label="",
+            title=edge_type,
+            label=label,
             arrows="to",
-            color="#bbbbbb",
+            color="#d62728" if edge_type == "has_unresolved_route" else "#bbbbbb",
         )
 
     try:
