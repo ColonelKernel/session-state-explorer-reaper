@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "session-state-explorer"
-version = "0.3.0"
+version = "0.4.0"
 description = "Interpretable DAW-state graphs for human-centered AI-assisted music production (research prototype)."
 readme = "README.md"
 license = { text = "MIT" }
@@ -32,10 +32,22 @@ dependencies = [
     "plotly>=5.18",
 ]
 
+[project.scripts]
+sse-reaper = "session_state_explorer.canonical_export.cli:main"
+
 [project.optional-dependencies]
 audio = ["librosa>=0.10", "soundfile>=0.12", "pyloudnorm>=0.1.1"]
 viz = ["pyvis>=0.3.2"]
 test = ["pytest>=7.4"]
+# The canonical-export adapter (the `sse-reaper` CLI and canonical_export
+# subpackage) needs the shared adapter<->analyzer contract package, which is
+# NOT on PyPI. Obtain it separately, then install this extra. When the contract
+# repo is public you can pin it directly, e.g.:
+#   pip install "session-state-explorer[canonical] @ ."  # after installing the line below
+# For now install the contract package yourself (editable from a local checkout
+# of the analyzer repo's packages/canonical_snapshot), then `pip install -e .`.
+# The core install and the Streamlit app do NOT require this.
+canonical = ["canonical-snapshot>=0.2.0,<0.3"]
 # Convenience: everything needed for the full Streamlit experience.
 full = [
     "librosa>=0.10",

@@ -34,6 +34,7 @@ from .utils import (
     linear_to_db,
     safe_float,
     safe_int,
+    swell_platform as _swell_platform,
 )
 
 _QUOTE_CHARS = "\"'`"
@@ -543,27 +544,6 @@ def _track_scalar(state: _State, key: str, rest: str) -> bool:
         return True  # plug-in "wet/automation" flags; nothing to model.
 
     return False
-
-
-def _swell_platform(header: Optional[str]) -> Optional[bool]:
-    """Classify the project-header platform token for colour byte order.
-
-    Returns ``True`` for SWELL platforms (macOS/Linux, R in the high byte),
-    ``False`` for Windows (R in the low byte), ``None`` when unknown.
-    """
-
-    if not header:
-        return None
-    lowered = header.lower()
-    # SWELL tokens are checked first: "darwin" contains the substring "win",
-    # so the Windows check must not run before it.
-    if any(token in lowered for token in ("osx", "macos", "darwin", "linux")):
-        return True
-    # "x64" covers legacy Windows headers (e.g. "5.983/x64"); macOS builds of
-    # that era wrote "OSX64", which the SWELL check above already caught.
-    if "win" in lowered or "x64" in lowered:
-        return False
-    return None
 
 
 def _handle_auxrecv(state: _State, rest: str, raw_line: str) -> None:

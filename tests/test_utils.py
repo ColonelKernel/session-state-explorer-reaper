@@ -1,8 +1,19 @@
-"""Tests for the heuristic classifiers, grounded in real-session track names."""
+"""Tests for the heuristic classifiers and REAPER value conversions.
+
+Classification cases are grounded in real-session track names. The colour,
+platform, and knowledge-hook tests were merged back from the analyzer repo's
+``tests/drivers/reaper/test_colors_and_classification.py``
+(origin ``SessionStateExplorer@041f529``).
+"""
 
 from __future__ import annotations
 
-from session_state_explorer.utils import classify_fx_family, classify_track_role
+from session_state_explorer.utils import (
+    classify_fx_family,
+    classify_track_role,
+    decode_color,
+    swell_platform,
+)
 
 
 def test_fx_metering_family():
@@ -48,3 +59,55 @@ def test_precedence_is_preserved():
     assert classify_track_role("Mellotron Guitar") == "Guitar"
     assert classify_track_role("Mellotron") == "Keys"
     assert classify_track_role("Vocal Bus") == "Bus"
+
+
+def test_stock_fx_classified_via_knowledge_hook():
+    # Bare stock names resolve through lookup_stock_fx, not keyword luck:
+    # "ReaInsert" carries no routing keyword, only the knowledge table knows it.
+    assert classify_fx_family("VST: ReaEQ (Cockos)") == "EQ"
+    assert classify_fx_family("VST: ReaVerbate (Cockos)") == "Ambience"
+    assert classify_fx_family("reacomp") == "Dynamics"
+    assert classify_fx_family("VST: ReaInsert (Cockos)") == "Routing"
+    assert classify_fx_family("JS: analysis/gfxspectrograph") == "Metering"
+
+
+# ---------------------------------------------------------------------------
+# Colour decoding (SDK I_CUSTOMCOLOR / ColorToNative semantics)
+# ---------------------------------------------------------------------------
+
+_IN_USE = 0x1000000
+
+
+def test_color_without_in_use_flag_is_none():
+    # A colour stored without |0x1000000 is stored but NOT used.
+    assert decode_color(0x0040C0) is None
+    assert decode_color(0) is None
+
+
+def test_black_in_use_decodes_to_black():
+    assert decode_color(_IN_USE) == "#000000"
+
+
+def test_windows_layout_puts_red_in_the_low_byte():
+    assert decode_color(0x0040C0 | _IN_USE) == "#c04000"
+    assert decode_color(0x0000C0 | _IN_USE) == "#c00000"
+
+
+def test_swell_layout_puts_red_in_the_high_byte():
+    assert decode_color(0x0000C0 | _IN_USE, swell_order=True) == "#0000c0"
+    assert decode_color(0xC00000 | _IN_USE, swell_order=True) == "#c00000"
+
+
+def test_decode_color_tolerates_bad_input():
+    assert decode_color(None) is None
+    assert decode_color("not-an-int") is None
+
+
+def test_swell_platform_classification():
+    assert swell_platform("7.0/OSX64") is True
+    assert swell_platform("7.0/darwin-arm64") is True  # "darwin" contains "win"
+    assert swell_platform("7.0/linux-x86_64") is True
+    assert swell_platform("7.0/win64") is False
+    assert swell_platform("5.983/x64") is False  # legacy Windows header
+    assert swell_platform("7.0/mystery") is None
+    assert swell_platform(None) is None

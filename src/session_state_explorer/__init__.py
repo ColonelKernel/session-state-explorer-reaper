@@ -11,7 +11,9 @@ the core parsing and graph-construction pipeline always works.
 
 from __future__ import annotations
 
-__version__ = "0.3.0"
+__version__ = "0.4.0"
+# JSON export schema version (unchanged by the canonical-export adapter, which
+# emits the separate canonical_snapshot v0.2 contract format).
 SCHEMA_VERSION = "0.3.0"
 
 __all__ = ["__version__", "SCHEMA_VERSION"]

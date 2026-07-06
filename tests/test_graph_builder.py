@@ -109,6 +109,30 @@ def test_unresolved_route_becomes_bus_node():
     assert data["volume_db"] == 0.0
 
 
+def test_record_chain_fx_present_in_graph():
+    # Merged back from the analyzer repo's test_graph.py
+    # (origin SessionStateExplorer@041f529): record-input/monitoring FX
+    # (<FXCHAIN_REC>) must appear in the graph with chain="rec".
+    rpp = """<REAPER_PROJECT 0.1 "x" 0
+  <TRACK
+    NAME "Vox"
+    <FXCHAIN_REC
+      BYPASS 0 0 0
+      <VST "VST: ReaGate (Cockos)" reagate.dll 0 "" 0
+      >
+    >
+  >
+>
+"""
+    graph = build_graph(parse_rpp(rpp))
+    rec_fx = [
+        n
+        for n, d in graph.nodes(data=True)
+        if d["type"] == "fx" and d.get("chain") == "rec"
+    ]
+    assert len(rec_fx) == 1
+
+
 def test_graph_to_dict_roundtrips_structure():
     graph = build_graph(parse_rpp(RPP))
     payload = graph_to_dict(graph)
