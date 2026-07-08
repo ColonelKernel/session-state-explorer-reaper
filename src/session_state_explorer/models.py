@@ -75,6 +75,12 @@ class RouteState(BaseModel):
     volume_db: Optional[float] = None  # convenience conversion of ``volume``
     pan: Optional[float] = None  # -1..+1 (SDK D_PAN)
     mute: Optional[bool] = None  # send mute (SDK B_MUTE)
+    # Packed channel-mapping fields, kept verbatim as read from the AUXRECV
+    # line (SDK I_SRCCHAN / I_DSTCHAN / I_MIDIFLAGS bitfields; decoding lives
+    # in ``utils.decode_send_*``). ``src_channel`` -1 means a MIDI-only send.
+    src_channel: Optional[int] = None
+    dst_channel: Optional[int] = None
+    midi_flags: Optional[int] = None
     raw_line: Optional[str] = None
 
 
@@ -100,6 +106,15 @@ class TrackState(BaseModel):
     solo_mode: Optional[int] = None
     solo_defeat: Optional[bool] = None  # SDK B_SOLO_DEFEAT: audible even when another track is soloed
     main_send: Optional[bool] = None  # SDK B_MAINSEND: track sends audio to its parent/master
+    # Folder structure, from the track's ISBUS line. ``folder_state`` is the
+    # raw first token (0=normal, 1=folder parent, 2=last track in folder);
+    # ``folder_depth`` is the raw depth delta this track applies (SDK
+    # I_FOLDERDEPTH: +1 opens a folder, -n closes n levels after this track).
+    folder_state: Optional[int] = None
+    folder_depth: Optional[int] = None
+    # Resolved in post-processing from the ISBUS depth deltas across the
+    # ordered track list (derived, not a stored parent pointer).
+    parent_track_id: Optional[str] = None
     color: Optional[str] = None  # "#rrggbb" when decodable and flagged as in use
     media_items: List[MediaItemState] = Field(default_factory=list)
     fx: List[FxState] = Field(default_factory=list)

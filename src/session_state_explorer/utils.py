@@ -218,6 +218,80 @@ def swell_platform(header: Optional[str]) -> Optional[bool]:
     return None
 
 
+# Send-channel bitfields (SDK ``GetSetTrackSendInfo``): the low 10 bits of a
+# packed channel value are the first channel index; the bits above select the
+# width. Applies to the AUXRECV source/destination channel tokens.
+_SEND_CHANNEL_INDEX_MASK = 0x3FF
+_SEND_DST_MONO_FLAG = 1024
+
+
+def decode_send_src_channels(packed: Optional[int]) -> Optional[List[int]]:
+    """Decode a packed send source-channel value into 0-based channel indices.
+
+    SDK ``I_SRCCHAN`` semantics: ``-1`` means *no audio* (a MIDI-only send);
+    otherwise the low 10 bits are the first source channel index and the value
+    shifted right by 10 selects the width — ``0`` = stereo pair, ``1`` = mono,
+    ``n >= 2`` = ``2*n`` channels. Returns ``None`` for missing values and for
+    audio-disabled sends.
+    """
+
+    if packed is None or packed < 0:
+        return None
+    start = packed & _SEND_CHANNEL_INDEX_MASK
+    mode = packed >> 10
+    if mode == 0:
+        count = 2
+    elif mode == 1:
+        count = 1
+    else:
+        count = 2 * mode
+    return list(range(start, start + count))
+
+
+def decode_send_dst_channels(
+    packed: Optional[int], source_count: Optional[int] = None
+) -> Optional[List[int]]:
+    """Decode a packed send destination-channel value into 0-based indices.
+
+    SDK ``I_DSTCHAN`` semantics: the low 10 bits are the first destination
+    channel index; ``&1024`` marks a mono (downmixed) destination, otherwise
+    the send lands on a stereo pair — or on ``source_count`` channels when the
+    source picks up more than two. Returns ``None`` for missing values.
+    """
+
+    if packed is None or packed < 0:
+        return None
+    start = packed & _SEND_CHANNEL_INDEX_MASK
+    if packed & _SEND_DST_MONO_FLAG:
+        return [start]
+    count = source_count if (source_count is not None and source_count > 2) else 2
+    return list(range(start, start + count))
+
+
+def decode_send_midi_flags(packed: Optional[int]) -> Optional[dict]:
+    """Decode a send's packed MIDI flags into a small dict.
+
+    SDK ``I_MIDIFLAGS`` semantics: the low 5 bits are the MIDI source channel
+    (``0`` = all, ``1``-``16`` a single channel, ``31`` = MIDI disabled); the
+    next 5 bits are the destination channel (``0`` = keep the source channel).
+    Higher bits (MIDI bus selection, fader-controls-MIDI) are not decoded.
+    Returns ``None`` for missing values, ``{"enabled": False}`` when the send
+    carries no MIDI, else the source/target channel mapping.
+    """
+
+    if packed is None:
+        return None
+    if packed < 0 or (packed & 31) == 31:
+        return {"enabled": False}
+    source = packed & 31
+    target = (packed >> 5) & 31
+    return {
+        "enabled": True,
+        "source_channel": "all" if source == 0 else source,
+        "target_channel": "source" if target == 0 else target,
+    }
+
+
 # ---------------------------------------------------------------------------
 # Defensive parsing helpers
 # ---------------------------------------------------------------------------

@@ -12,6 +12,9 @@ from session_state_explorer.utils import (
     classify_fx_family,
     classify_track_role,
     decode_color,
+    decode_send_dst_channels,
+    decode_send_midi_flags,
+    decode_send_src_channels,
     swell_platform,
 )
 
@@ -111,3 +114,57 @@ def test_swell_platform_classification():
     assert swell_platform("5.983/x64") is False  # legacy Windows header
     assert swell_platform("7.0/mystery") is None
     assert swell_platform(None) is None
+
+
+# ---------------------------------------------------------------------------
+# Send-channel bitfield decoding (SDK GetSetTrackSendInfo semantics)
+# ---------------------------------------------------------------------------
+
+def test_src_channel_stereo_and_offset():
+    # Mode 0 (value >> 10 == 0): a stereo pair starting at the low-bits index.
+    assert decode_send_src_channels(0) == [0, 1]
+    assert decode_send_src_channels(2) == [2, 3]
+
+
+def test_src_channel_mono():
+    # &1024 (mode 1): a single mono channel.
+    assert decode_send_src_channels(1024) == [0]
+    assert decode_send_src_channels(1024 | 2) == [2]
+
+
+def test_src_channel_multichannel():
+    # Mode n >= 2: 2*n channels from the start index.
+    assert decode_send_src_channels(2 << 10) == [0, 1, 2, 3]
+    assert decode_send_src_channels((3 << 10) | 2) == [2, 3, 4, 5, 6, 7]
+
+
+def test_src_channel_none_and_audio_disabled():
+    assert decode_send_src_channels(None) is None
+    assert decode_send_src_channels(-1) is None  # MIDI-only send
+
+
+def test_dst_channel_stereo_mono_and_wide():
+    assert decode_send_dst_channels(0) == [0, 1]
+    assert decode_send_dst_channels(4) == [4, 5]
+    assert decode_send_dst_channels(1024 | 5) == [5]  # mono (downmixed) dest
+    # A >2-channel source lands on as many destination channels.
+    assert decode_send_dst_channels(0, source_count=4) == [0, 1, 2, 3]
+    # A mono source still feeds a stereo destination pair unless dst is mono.
+    assert decode_send_dst_channels(0, source_count=1) == [0, 1]
+    assert decode_send_dst_channels(None) is None
+
+
+def test_midi_flags_decoding():
+    assert decode_send_midi_flags(None) is None
+    assert decode_send_midi_flags(31) == {"enabled": False}  # low 5 bits = 31: none
+    assert decode_send_midi_flags(-1) == {"enabled": False}
+    assert decode_send_midi_flags(0) == {
+        "enabled": True,
+        "source_channel": "all",
+        "target_channel": "source",
+    }
+    assert decode_send_midi_flags(3 | (5 << 5)) == {
+        "enabled": True,
+        "source_channel": 3,
+        "target_channel": 5,
+    }

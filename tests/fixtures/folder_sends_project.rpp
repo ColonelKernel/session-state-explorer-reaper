@@ -1,0 +1,58 @@
+<REAPER_PROJECT 0.1 "7.0/win64" 1700000000
+  TEMPO 100 4 4
+  SAMPLERATE 48000 0 0
+  <TRACK {GUID-F0}
+    NAME "Drum Bus"
+    ISBUS 1 1
+    MAINSEND 1 0
+    VOLPAN 1 0 -1 -1 1
+    MUTESOLO 0 0 0
+  >
+  <TRACK {GUID-F1}
+    NAME "Kick"
+    ISBUS 0 0
+    MAINSEND 1 0
+    VOLPAN 1 0 -1 -1 1
+    MUTESOLO 0 0 0
+  >
+  <TRACK {GUID-F2}
+    NAME "Room"
+    ISBUS 1 1
+    MAINSEND 1 0
+    VOLPAN 1 0 -1 -1 1
+    MUTESOLO 0 0 0
+  >
+  <TRACK {GUID-F3}
+    NAME "Room L"
+    ISBUS 2 -2
+    MAINSEND 0 0
+    VOLPAN 1 0 -1 -1 1
+    MUTESOLO 0 0 0
+  >
+  <TRACK {GUID-F4}
+    NAME "Verb"
+    ISBUS 0 0
+    MAINSEND 1 0
+    VOLPAN 1 0 -1 -1 1
+    MUTESOLO 0 0 0
+    AUXRECV 1 0 0.5 0 0 0 0 2 4 -1:U 31 -1 ''
+    AUXRECV 2 0 1 0 0 0 0 2048 0 -1:U 31 -1 ''
+  >
+  <TRACK {GUID-F5}
+    NAME "Mono FX"
+    ISBUS 0 0
+    MAINSEND 1 0
+    VOLPAN 1 0 -1 -1 1
+    MUTESOLO 0 0 0
+    AUXRECV 1 3 1 0 0 0 0 1026 1029 -1:U 0 -1 ''
+  >
+  <TRACK {GUID-F6}
+    NAME "MIDI Target"
+    ISBUS 0 0
+    MAINSEND 1 0
+    VOLPAN 1 0 -1 -1 1
+    MUTESOLO 0 0 0
+    AUXRECV 0 0 1 0 0 0 0 -1 0 -1:U 0 -1 ''
+    AUXRECV 4 0 1 0 0 0 0
+  >
+>

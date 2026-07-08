@@ -45,8 +45,10 @@ KNOWN_LIMITATIONS = [
     "Automation envelopes, take FX, item fades, and the tempo map are not "
     "parsed (UNSUPPORTED); only the project-default tempo and time signature "
     "are observed.",
-    "Folder/bus hierarchy (ISBUS/BUSCOMP) is not reconstructed; tracks are "
-    "observed as a flat list.",
+    "Folder hierarchy is reconstructed from ISBUS depth deltas (derived, not "
+    "a stored parent pointer). Group summing is gated per folder parent: a "
+    "child whose MAINSEND is disabled does not actually feed its parent and "
+    "is flagged with a warning rather than suppressing the group-sum edge.",
     "Track colour byte order is OS-dependent; decoding relies on the project "
     "header platform token and falls back to the Windows layout with a warning.",
     "Track roles and FX families are heuristics (name keywords plus a "
@@ -116,7 +118,10 @@ def build_capability_manifest(
                 "project_tempo": _observed(),
                 "project_time_signature": _observed(),
                 "project_sample_rate": _observed(),
-                "folder_hierarchy": _unsupported(),
+                # Raw ISBUS folder state/depth is observed; the parent/child
+                # structure itself is a deterministic derivation from those
+                # deltas, so the snapshot marks it INFERRED per entity.
+                "folder_hierarchy": _observed(),
             }
         ),
         "channel": DomainCapability(
@@ -140,6 +145,11 @@ def build_capability_manifest(
                 "send_pan": _observed(),
                 "send_mute": _observed(),
                 "send_mode": _observed(),
+                # Per-send channel mapping (AUXRECV I_SRCCHAN/I_DSTCHAN
+                # bitfields) and MIDI flags; PARTIAL because MIDI bus bits and
+                # the fader-controls-MIDI flag are not decoded.
+                "send_channels": _observed(),
+                "send_midi_flags": _observed(support="PARTIAL"),
                 "unresolved_sources": _observed(support="PARTIAL"),
                 "hardware_outputs": _unsupported(),
             }
@@ -194,8 +204,9 @@ def build_adapter_descriptor() -> AdapterDescriptor:
         daw=DAW,
         capture_modes=list(CAPTURE_MODES),
         read=(
-            "Parses REAPER .rpp project files: structure, channel state, "
-            "routing (sends incl. unresolved sources), FX chains "
+            "Parses REAPER .rpp project files: structure (incl. folder "
+            "hierarchy), channel state, routing (sends incl. per-send "
+            "channel/MIDI mapping and unresolved sources), FX chains "
             "(incl. record-input chains), and media items. Plug-in internals "
             "hidden; automation unsupported."
         ),
