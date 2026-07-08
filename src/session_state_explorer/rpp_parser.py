@@ -121,6 +121,9 @@ class _PendingRoute:
     volume: Optional[float]
     pan: Optional[float]
     mute: Optional[bool]
+    src_channel: Optional[int]  # packed I_SRCCHAN bitfield, verbatim
+    dst_channel: Optional[int]  # packed I_DSTCHAN bitfield, verbatim
+    midi_flags: Optional[int]  # packed I_MIDIFLAGS bitfield, verbatim
     raw_line: str
 
 
@@ -170,6 +173,7 @@ def parse_rpp(text: str, source_file: Optional[str] = None) -> ProjectState:
         project.warnings.append(f"Parser stopped early on an unexpected error: {exc!r}")
 
     _resolve_routes(state)
+    _resolve_folders(state)
     _finalize(state)
     return project
 
@@ -503,6 +507,20 @@ def _track_scalar(state: _State, key: str, rest: str) -> bool:
             track.main_send = safe_int(tokens[0]) not in (0, None)
         return True
 
+    if key == "ISBUS":
+        # ISBUS <folder_state> <folder_depth_delta>. The first token is the
+        # track's folder role (0=normal, 1=folder parent, 2=last in folder);
+        # the second is the depth delta the track applies (SDK I_FOLDERDEPTH:
+        # +1 opens a folder, -n closes n levels after this track). Both are
+        # kept verbatim; the parent/child structure is resolved from the
+        # deltas in post-processing (_resolve_folders).
+        tokens = rest.split()
+        if tokens:
+            track.folder_state = safe_int(tokens[0])
+        if len(tokens) > 1:
+            track.folder_depth = safe_int(tokens[1])
+        return True
+
     if key == "PEAKCOL":
         tokens = rest.split()
         if tokens:
@@ -561,9 +579,12 @@ def _handle_auxrecv(state: _State, rest: str, raw_line: str) -> None:
             "Could not resolve source track for AUXRECV line."
         )
         return
-    # AUXRECV <src> <mode> <vol> <pan> <mute> ... — token positions past <src>
-    # are format knowledge; each is parsed tolerantly and left None when absent.
-    # Value semantics per SDK GetSetTrackSendInfo (I_SENDMODE/D_VOL/D_PAN/B_MUTE).
+    # AUXRECV <src> <mode> <vol> <pan> <mute> <monosum> <phase> <srcchan>
+    # <dstchan> <panlaw> <midiflags> ... — token positions past <src> are
+    # format knowledge; each is parsed tolerantly and left None when absent.
+    # Value semantics per SDK GetSetTrackSendInfo (I_SENDMODE/D_VOL/D_PAN/
+    # B_MUTE and the I_SRCCHAN/I_DSTCHAN/I_MIDIFLAGS channel bitfields, kept
+    # verbatim here and decoded downstream via utils.decode_send_*).
     mute_token = safe_int(tokens[4]) if len(tokens) > 4 else None
     state.pending_routes.append(
         _PendingRoute(
@@ -573,6 +594,9 @@ def _handle_auxrecv(state: _State, rest: str, raw_line: str) -> None:
             volume=safe_float(tokens[2]) if len(tokens) > 2 else None,
             pan=safe_float(tokens[3]) if len(tokens) > 3 else None,
             mute=(mute_token != 0) if mute_token is not None else None,
+            src_channel=safe_int(tokens[7]) if len(tokens) > 7 else None,
+            dst_channel=safe_int(tokens[8]) if len(tokens) > 8 else None,
+            midi_flags=safe_int(tokens[10]) if len(tokens) > 10 else None,
             raw_line=raw_line.rstrip(),
         )
     )
@@ -592,6 +616,9 @@ def _resolve_routes(state: _State) -> None:
             volume_db=linear_to_db(pending.volume),
             pan=pending.pan,
             mute=pending.mute,
+            src_channel=pending.src_channel,
+            dst_channel=pending.dst_channel,
+            midi_flags=pending.midi_flags,
         )
         if 0 <= pending.src_index < len(tracks) and 0 <= pending.dest_index < len(tracks):
             source = tracks[pending.src_index]
@@ -632,6 +659,36 @@ def _resolve_routes(state: _State) -> None:
             state.project.warnings.append(
                 "Could not resolve source track for AUXRECV line."
             )
+
+
+def _resolve_folders(state: _State) -> None:
+    """Reconstruct the folder hierarchy from the ISBUS depth deltas.
+
+    A track whose delta is positive opens a folder containing every following
+    track until negative deltas have closed it again (``-1`` closes one level,
+    ``-2`` two, ...). The parent assignment is *derived* from these observed
+    deltas across the ordered track list — the .rpp stores no parent pointer.
+    Tolerant by design: closing more levels than were opened is warned about,
+    never raised, and an unclosed folder simply ends with the project (which is
+    how REAPER itself treats a folder parent at the end of the track list).
+    """
+
+    stack: List[TrackState] = []
+    for track in state.project.tracks:
+        if stack:
+            track.parent_track_id = stack[-1].id
+        delta = track.folder_depth or 0
+        if delta > 0:
+            stack.append(track)
+        elif delta < 0:
+            for _ in range(-delta):
+                if not stack:
+                    state.project.warnings.append(
+                        "Folder structure closes more levels than were opened "
+                        "(ISBUS depth underflow); the extra close was ignored."
+                    )
+                    break
+                stack.pop()
 
 
 def _finalize(state: _State) -> None:

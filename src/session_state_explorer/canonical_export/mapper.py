@@ -39,6 +39,11 @@ from canonical_snapshot.nested import (
     inferred,
 )
 
+from ..utils import (
+    decode_send_dst_channels,
+    decode_send_midi_flags,
+    decode_send_src_channels,
+)
 from .native_models import (
     FxState,
     MediaItemState,
@@ -121,17 +126,59 @@ def _map_track(track: TrackState, source_artifact: str) -> Track:
             confidence=0.6,
             source_artifact=source_artifact,
         )
+
+    # Folder hierarchy. A positive ISBUS depth delta marks a folder parent —
+    # in REAPER that is a real mixer track that also *sums* its children (the
+    # contract's group-kind track), so both facts are stated with their own
+    # evidence class: the raw ISBUS values are observed (they ride in extras),
+    # while the parent link and the summing claim are derived.
+    is_folder_parent = (track.folder_depth or 0) > 0
+    sums_children: Optional[bool] = None
+    warnings: list[str] = []
+    if is_folder_parent:
+        sums_children = True
+        field_provenance["sums_children"] = inferred(
+            explanation=(
+                "A REAPER folder parent is a summing bus: children with their "
+                "parent send enabled (MAINSEND) mix into the parent channel. "
+                "Documented REAPER behaviour, not a stored field."
+            ),
+            confidence=0.9,
+            source_artifact=source_artifact,
+        )
+    if track.parent_track_id is not None:
+        field_provenance["group_id"] = inferred(
+            explanation=(
+                "Parent folder derived from the ISBUS folder-depth deltas "
+                "across the ordered track list; deterministic reconstruction "
+                "from observed structure — the .rpp stores no parent pointer."
+            ),
+            confidence=0.95,
+            source_artifact=source_artifact,
+        )
+        if track.main_send is False:
+            # The contract gates group summing per parent, not per child, so
+            # this exception cannot suppress the child's group-sum edge; state
+            # it as a warning instead of silently overclaiming signal flow.
+            warnings.append(
+                "main send (MAINSEND) is disabled: this track does not feed "
+                "its folder parent's summing channel despite the folder "
+                "membership."
+            )
+
     return Track(
         id=_ns(track.id),
         index=track.index,
         name=track.name,
-        kind="audio",
+        kind="group" if is_folder_parent else "audio",
         role=track.role,
         color=track.color,
         volume_db=track.volume_db,
         pan=track.pan,
         mute=track.mute,
         solo=track.solo,
+        group_id=_ns(track.parent_track_id),
+        sums_children=sums_children,
         clips=[_map_clip(item, source_artifact) for item in track.media_items],
         processors=[_map_processor(fx, source_artifact) for fx in track.fx],
         provenance=_observed(source_artifact),
@@ -144,12 +191,63 @@ def _map_track(track: TrackState, source_artifact: str) -> Track:
             solo_mode=track.solo_mode,
             solo_defeat=track.solo_defeat,
             main_send=track.main_send,
+            folder_state=track.folder_state,
+            folder_depth=track.folder_depth,
         ),
         raw_source=list(track.raw_lines),
+        warnings=warnings,
     )
 
 
 def _map_route(route: RouteState, source_artifact: str) -> Route:
+    # Per-send channel mapping, decoded from the packed AUXRECV bitfields the
+    # parser kept verbatim. The canonical fields carry the decoded 0-based
+    # channel lists; the raw packed values ride in extras so the decode stays
+    # auditable. All fields stay None (contract reading: stereo-implicit) when
+    # the AUXRECV line predates / omits the channel tokens; a MIDI-only send
+    # (src_channel == -1) gets no audio channel spec at all.
+    source_channels = decode_send_src_channels(route.src_channel)
+    target_channels = (
+        decode_send_dst_channels(route.dst_channel, len(source_channels))
+        if source_channels is not None
+        else None
+    )
+    if target_channels is not None:
+        channel_count = len(target_channels)
+    elif source_channels is not None:
+        channel_count = len(source_channels)
+    else:
+        channel_count = None
+    channel_layout = None
+    if channel_count == 1:
+        channel_layout = "mono"
+    elif channel_count == 2:
+        channel_layout = "stereo"
+    elif channel_count is not None:
+        channel_layout = f"{channel_count}ch"
+
+    extras = _non_none(
+        src_channel=route.src_channel,
+        dst_channel=route.dst_channel,
+        midi_flags=route.midi_flags,
+    )
+    if route.src_channel is not None:
+        extras["audio_enabled"] = route.src_channel != -1
+    midi = decode_send_midi_flags(route.midi_flags)
+    if midi is not None:
+        extras["midi_enabled"] = midi["enabled"]
+        if midi["enabled"]:
+            extras["midi_source_channel"] = midi["source_channel"]
+            extras["midi_target_channel"] = midi["target_channel"]
+
+    provenance = _observed(source_artifact)
+    if extras:
+        provenance.explanation = (
+            "Per-send channel/MIDI mapping decoded from the packed AUXRECV "
+            "bitfields (SDK I_SRCCHAN/I_DSTCHAN/I_MIDIFLAGS); the raw packed "
+            "values are preserved alongside the decoded channel lists."
+        )
+
     return Route(
         id=_ns(route.id),
         source_track_id=_ns(route.source_track_id),
@@ -162,7 +260,12 @@ def _map_route(route: RouteState, source_artifact: str) -> Route:
         volume_db=route.volume_db,
         pan=route.pan,
         mute=route.mute,
-        provenance=_observed(source_artifact),
+        source_channels=source_channels,
+        target_channels=target_channels,
+        channel_count=channel_count,
+        channel_layout=channel_layout,
+        provenance=provenance,
+        extras=extras,
         raw_source=route.raw_line,
     )
 

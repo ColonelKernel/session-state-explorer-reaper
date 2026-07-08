@@ -216,3 +216,106 @@ def test_capabilities_and_descriptor_are_honest(bundle):
     descriptor = _load(out_dir, "adapter_descriptor.json")
     assert descriptor["adapter_id"] == "reaper-rpp"
     assert descriptor["known_limitations"]
+
+
+# ---------------------------------------------------------------------------
+# Folder hierarchy + per-send channel mapping in the flat v0.2 snapshot
+# ---------------------------------------------------------------------------
+
+FOLDER_SENDS_RPP = (
+    Path(__file__).resolve().parent / "fixtures" / "folder_sends_project.rpp"
+)
+
+
+@pytest.fixture(scope="module")
+def folder_bundle(tmp_path_factory):
+    out_dir = tmp_path_factory.mktemp("folder_bundle")
+    result = export_bundle(FOLDER_SENDS_RPP, out_dir)
+    return out_dir, result
+
+
+def test_folder_bundle_is_valid(folder_bundle):
+    _, result = folder_bundle
+    assert result["valid"] is True
+    assert result["errors"] == []
+
+
+def test_folder_hierarchy_lands_as_contains_and_gated_sums(folder_bundle):
+    out_dir, _ = folder_bundle
+    snapshot = _load(out_dir, "canonical.snapshot.json")
+    rels = snapshot["relationships"]
+
+    def rel_set(rel_type, prop_filter=None):
+        return {
+            (r["source"], r["target"])
+            for r in rels
+            if r["rel_type"] == rel_type
+            and (prop_filter is None or all(
+                r["properties"].get(k) == v for k, v in prop_filter.items()
+            ))
+        }
+
+    # Containment is unconditional and TRACK-level (group_member kind).
+    contains = rel_set("CONTAINS", {"kind": "group_member"})
+    assert ("reaper:track-0", "reaper:track-1") in contains  # Drum Bus > Kick
+    assert ("reaper:track-0", "reaper:track-2") in contains  # Drum Bus > Room
+    assert ("reaper:track-2", "reaper:track-3") in contains  # Room > Room L
+    # Top-level tracks are not contained by anything.
+    contained_children = {dst for _, dst in contains}
+    assert "reaper:track-4" not in contained_children  # Verb (after ISBUS -2)
+
+    # REAPER folder parents are summing buses: the group sum is expressed on
+    # the CHANNEL side, gated by sums_children (grouping honesty).
+    sums = rel_set("SUMS_TO")
+    assert ("reaper:track-1:channel", "reaper:track-0:channel") in sums
+    assert ("reaper:track-3:channel", "reaper:track-2:channel") in sums
+    routes_via_group = rel_set("CHANNEL_ROUTES_TO", {"via": "group_sum"})
+    assert ("reaper:track-1:channel", "reaper:track-0:channel") in routes_via_group
+
+    # The folder parent's TRACK half carries the folder semantics.
+    entities = {e["id"]: e for e in snapshot["entities"]}
+    drum_bus = entities["reaper:track-0"]
+    assert "folder_parent" in drum_bus["semantic_roles"]
+    assert "submix" in drum_bus["semantic_roles"]
+
+    # A child whose MAINSEND is off is flagged in the snapshot warnings (the
+    # contract gates summing per parent, so the edge itself remains).
+    assert any(
+        "reaper:track-3" in w and "MAINSEND" in w for w in snapshot["warnings"]
+    )
+
+
+def test_send_channel_mapping_rides_the_sends_edges(folder_bundle):
+    out_dir, _ = folder_bundle
+    snapshot = _load(out_dir, "canonical.snapshot.json")
+    sends = {
+        (r["source"], r["target"]): r["properties"]
+        for r in snapshot["relationships"]
+        if r["rel_type"] == "CHANNEL_SENDS_TO"
+    }
+
+    # Kick -> Verb: decoded channel lists plus the raw packed bitfields.
+    stereo = sends[("reaper:track-1:channel", "reaper:track-4:channel")]
+    assert stereo["source_channels"] == [2, 3]
+    assert stereo["target_channels"] == [4, 5]
+    assert stereo["channel_count"] == 2
+    assert stereo["channel_layout"] == "stereo"
+    assert stereo["src_channel"] == 2 and stereo["dst_channel"] == 4
+    assert stereo["midi_enabled"] is False
+
+    # Kick -> Mono FX: mono downmix destination.
+    mono = sends[("reaper:track-1:channel", "reaper:track-5:channel")]
+    assert mono["source_channels"] == [2]
+    assert mono["target_channels"] == [5]
+    assert mono["channel_layout"] == "mono"
+
+    # Drum Bus -> MIDI Target: MIDI-only, no invented audio channel spec.
+    midi_only = sends[("reaper:track-0:channel", "reaper:track-6:channel")]
+    assert "source_channels" not in midi_only
+    assert midi_only["audio_enabled"] is False
+    assert midi_only["midi_enabled"] is True
+
+    # Short AUXRECV (Verb -> MIDI Target): stereo-implicit, no channel keys.
+    short = sends[("reaper:track-4:channel", "reaper:track-6:channel")]
+    assert "source_channels" not in short
+    assert "channel_count" not in short

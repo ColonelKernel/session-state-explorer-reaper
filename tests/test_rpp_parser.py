@@ -363,6 +363,79 @@ def test_legacy_x64_header_is_windows_without_warning():
     assert not any("byte order" in w for w in project.warnings)
 
 
+def test_auxrecv_channel_fields_parsed_verbatim():
+    # AUXRECV <src> <mode> <vol> <pan> <mute> <monosum> <phase> <srcchan>
+    # <dstchan> <panlaw> <midiflags> ... — the packed channel bitfields are
+    # kept verbatim (decoding is downstream, utils.decode_send_*).
+    rpp = (
+        '<REAPER_PROJECT 0.1 "7.0/win64" 0\n'
+        "  <TRACK\n    NAME \"Src\"\n  >\n"
+        "  <TRACK\n    NAME \"Dst\"\n"
+        "    AUXRECV 0 0 1 0 0 0 0 2 4 -1:U 31 -1 ''\n"
+        "  >\n>\n"
+    )
+    project = parse_rpp(rpp)
+    route = project.routes[0]
+    assert route.src_channel == 2
+    assert route.dst_channel == 4
+    assert route.midi_flags == 31
+
+
+def test_auxrecv_without_channel_fields_leaves_them_none():
+    # Short AUXRECV lines (no channel tokens) stay honest: nothing invented.
+    project = parse_rpp(FAKE_RPP, source_file="test.rpp")
+    route = project.routes[0]
+    assert route.src_channel is None
+    assert route.dst_channel is None
+    assert route.midi_flags is None
+
+
+def test_folder_hierarchy_resolved_from_isbus():
+    # Folder layout: A(+1) contains [B, C(+1) contains [D(-2 closes both)]],
+    # then E is back at the top level.
+    rpp = (
+        '<REAPER_PROJECT 0.1 "7.0/win64" 0\n'
+        "  <TRACK\n    NAME \"A\"\n    ISBUS 1 1\n  >\n"
+        "  <TRACK\n    NAME \"B\"\n    ISBUS 0 0\n  >\n"
+        "  <TRACK\n    NAME \"C\"\n    ISBUS 1 1\n  >\n"
+        "  <TRACK\n    NAME \"D\"\n    ISBUS 2 -2\n  >\n"
+        "  <TRACK\n    NAME \"E\"\n  >\n>\n"
+    )
+    project = parse_rpp(rpp)
+    a, b, c, d, e = project.tracks
+    assert (a.folder_state, a.folder_depth) == (1, 1)
+    assert a.parent_track_id is None
+    assert b.parent_track_id == a.id
+    assert c.parent_track_id == a.id  # nested folder parent is itself a child
+    assert d.parent_track_id == c.id
+    assert (d.folder_state, d.folder_depth) == (2, -2)
+    assert e.parent_track_id is None  # -2 closed both levels
+    assert e.folder_state is None  # no ISBUS line at all: nothing invented
+
+
+def test_folder_depth_underflow_warns_but_does_not_raise():
+    rpp = (
+        '<REAPER_PROJECT 0.1 "7.0/win64" 0\n'
+        "  <TRACK\n    NAME \"A\"\n    ISBUS 2 -1\n  >\n"
+        "  <TRACK\n    NAME \"B\"\n  >\n>\n"
+    )
+    project = parse_rpp(rpp)
+    assert project.tracks[1].parent_track_id is None
+    assert any("underflow" in w for w in project.warnings)
+
+
+def test_unclosed_folder_ends_with_the_project():
+    # A folder parent as the last track: REAPER tolerates it; so do we.
+    rpp = (
+        '<REAPER_PROJECT 0.1 "7.0/win64" 0\n'
+        "  <TRACK\n    NAME \"A\"\n    ISBUS 1 1\n  >\n"
+        "  <TRACK\n    NAME \"B\"\n  >\n>\n"
+    )
+    project = parse_rpp(rpp)
+    assert project.tracks[1].parent_track_id == project.tracks[0].id
+    assert not any("underflow" in w for w in project.warnings)
+
+
 def test_spaced_project_header_does_not_abort_parse():
     # Crafted input: whitespace between '<' and the tag, no header arguments.
     # Must not raise mid-parse (the never-raise guarantee) and must still
