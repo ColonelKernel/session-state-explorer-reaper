@@ -31,17 +31,30 @@ that an algorithm can reason over, and that is honest about what it could *not* 
 
 ## 2. Screenshots
 
-Captured from a real 23-track REAPER 7 session (authored on macOS). Note the parser
-warning: one stem lives on an unmounted external drive — a genuinely partially
-observable session state, surfaced rather than hidden.
+The UI is organised around a mixing engineer's mental model — a channel-strip console,
+a signal-flow graph, and a mix-review checklist — over a compact session overview band.
 
-![Parsed session summary with a partial-observability warning](docs/screenshots/01_summary.png)
+**Mixer console** — each track as a channel strip: level, pan, mute/solo, the insert rack
+(in chain order, colour-coded by FX family), and sends. Horizontally scrollable.
 
-![Interactive DAW-state graph: project, tracks, media items and audio files](docs/screenshots/02_graph.png)
+![Channel-strip console: per-track level, pan, mute/solo, insert rack and sends](docs/screenshots/01_mixer.png)
 
-![Explainable recommendations with suggested action and caveat](docs/screenshots/05_recommendations.png)
+**Signal flow** — the routing graph laid out left→right like a console (sources → buses →
+master), with send modes on the edges and unresolved routes flagged in red. Replaces the
+old force-directed view; a "Detail" resolution still offers the full graph.
 
-More views (tables, audio descriptors) in [`docs/screenshots/`](docs/screenshots/).
+![Layered signal-flow graph: source tracks feeding a drum bus, with an unresolved route](docs/screenshots/02_signal_flow.png)
+
+**Mix notes** — recommendations as a severity-sorted review checklist. Each names concrete
+REAPER stock plugins and workflows and carries page citations into the official guides.
+
+![Mix note: a shared ambience bus suggestion grounded in the REAPER User Guide §2.14](docs/screenshots/03_mix_notes.png)
+
+The console scales to real sessions — here a **real 23-track REAPER 7 mix** (authored on
+macOS); the overview band flags one stem on an unmounted drive, a genuinely partially
+observable state surfaced rather than hidden.
+
+![The mixer console on a real 23-track session, with a partial-observability flag](docs/screenshots/04_mixer_real_session.png)
 
 ## 3. Features
 
