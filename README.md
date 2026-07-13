@@ -18,6 +18,16 @@ context of the Music Technology Group (Universitat Pompeu Fabra) and Steinberg.
 > producer. It demonstrates how accessible DAW-state elements can be represented,
 > inspected, and used for explainable assistance.
 
+<p align="center">
+  <a href="https://github.com/ColonelKernel/session-state-explorer/releases/latest/download/session-state-explorer-demo.mp4">
+    <img src="docs/media/demo.gif" width="820"
+         alt="Highlight reel of the Session State Explorer UI: channel-strip console, signal-flow graph, grounded mix notes, and JSON export">
+  </a>
+  <br>
+  <em>90-second walkthrough — channel-strip console → signal flow → grounded mix notes → export.
+  <a href="https://github.com/ColonelKernel/session-state-explorer/releases/latest/download/session-state-explorer-demo.mp4">▶ Watch in HD with captions</a>.</em>
+</p>
+
 ---
 
 ## 1. Research motivation

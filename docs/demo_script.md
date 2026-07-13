@@ -1,61 +1,65 @@
 # 90-second demo script
 
-A tight walkthrough for a screen recording. Aim for ~90 seconds; the beats below map to
-roughly 15 seconds each. Speak in a calm, research-prototype register — no hype.
+A tight walkthrough for a screen recording. Aim for ~90 seconds; the six beats below map to
+roughly 15 seconds each. Speak in a calm, research-prototype register — no hype. The UI is
+mixer-first: a channel-strip console on landing, then signal flow, mix notes, and the
+research/data views.
 
 ---
 
 **0:00 — Problem (≈15s)**
 
-> "DAW sessions contain rich production knowledge — how a mix is organised, what is
-> processed where, how things are routed. But most AI music systems only ever see rendered
-> audio or isolated parameters. The session structure itself is thrown away."
+> "DAW sessions hold rich production knowledge — how a mix is organised, what is processed
+> where, how it is routed. But most AI music systems only ever see rendered audio. The
+> session structure itself is thrown away."
 
 **0:15 — Prototype (≈15s)**
 
-> "Session State Explorer parses a REAPER project into an interpretable graph of its DAW
-> state. I'll load the bundled example project."
+> "Session State Explorer parses a REAPER project into an interpretable model of its state.
+> Loading the bundled example surfaces an at-a-glance overview — tracks, buses, sends, tempo,
+> and a count of what it could not fully observe."
 
-*(Click **Load bundled example project**. Show the parsed summary: tracks, items, FX,
-routes, tempo, and the count of uncertain elements.)*
+*(Click **Load bundled example project** with **Extract audio descriptors** ticked. Let the
+overview band populate.)*
 
-**0:30 — Walkthrough (≈15s)**
+**0:30 — Mixer console (≈15s)**
 
-> "Tracks, clips, FX, routes, and audio files become nodes and edges. Colour and shape mark
-> the node type. I can filter the view, or focus on a single track."
+> "It opens on a channel-strip console — the way a mixing engineer reads a session. Each
+> track shows its colour, role, fader in dB, pan, its insert chain in order, and its sends."
 
-*(Hover a few nodes to show tooltips; toggle a filter; point out the unresolved-route node
-that marks something the parser could only partially observe.)*
+*(Stay on the **🎚 Mixer** tab; the strips are the landing view. Let the console read.)*
 
-**0:45 — Analysis (≈15s)**
+**0:45 — Signal flow (≈15s)**
 
-> "With a base audio directory set, the prototype extracts simple acoustic descriptors —
-> loudness, spectral shape, dynamics — connecting session structure to acoustic outcome."
+> "The signal-flow view lays routing out left to right — sources into buses into the master.
+> Unresolved routes are marked honestly, as session state the parser could only partially
+> observe."
 
-*(Tick **Extract audio descriptors**; show the descriptors table.)*
+*(Switch to **🔀 Signal flow**; the layered routing graph reads left→right, no hairball.)*
 
-**1:00 — Recommendation (≈15s)**
+**1:00 — Mix notes (≈15s)**
 
-> "From the graph, it suggests actions — here, a shared ambience bus and an under-processed
-> vocal — each with an explanation, a suggested action, and an explicit caveat: these are
-> heuristics, not objective mixing rules."
+> "Mix notes turns the state into a review checklist. Each note carries a reason, a concrete
+> action, an explicit caveat — heuristics, not rules — and a page citation into the REAPER
+> user guide."
 
-*(Open one or two recommendation cards; read the caveat line aloud.)*
+*(Switch to **📝 Mix notes**; expand the top card to show Why / Action / Caveat / Grounding.)*
 
 **1:15 — Research value (≈15s)**
 
-> "This is a first step toward DAW-state representations that support creativity rather than
-> replacing producers — interpretable, honest about uncertainty, and human-centered. The
-> whole session can be exported as JSON for further research."
+> "Interpretable, honest about uncertainty, and grounded in the manual — a step toward
+> DAW-state tools that support producers rather than replace them. The whole session exports
+> as JSON — state, graph, descriptors and notes — for further research."
 
-*(Click an export button to show the JSON download, then stop.)*
+*(Switch to **🔬 Data & research**; scroll to the **Export** section to show the JSON downloads.)*
 
 ---
 
 ## Recording tips
 
 - Generate data first: `python data/examples/make_example_data.py`.
-- Set the base audio directory to `data/examples` so descriptors and the level-imbalance
-  recommendation appear.
-- Keep the browser zoom moderate so the graph and a couple of tables are legible.
-- Record at 1080p; trim to ~90 seconds.
+- Run the app from the app venv on port 8502; drive it with the repo `.venv` Playwright
+  (`scratchpad/record_demo.py`), which warms the librosa JIT before the recorded pass.
+- The example project ships its own audio under `data/examples/audio`, so descriptors and the
+  grounded recommendations populate without any extra setup.
+- Record at 1600×900; the six beats are timed to `docs/demo/demo.srt`.
