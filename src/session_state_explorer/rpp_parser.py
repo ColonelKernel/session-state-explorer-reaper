@@ -167,7 +167,10 @@ def parse_rpp(text: str, source_file: Optional[str] = None) -> ProjectState:
     state = _State(project=project)
 
     try:
-        for raw_line in text.splitlines():
+        # Split on real line endings only. str.splitlines() also breaks on the Unicode
+        # line-boundary set (U+2028, U+0085/NEL, VT, FF, …), which would silently truncate
+        # a quoted track/item/FX name or FILE path that legitimately contains one.
+        for raw_line in text.replace("\r\n", "\n").replace("\r", "\n").split("\n"):
             _consume_line(state, raw_line)
     except Exception as exc:  # pragma: no cover - defensive backstop
         project.warnings.append(f"Parser stopped early on an unexpected error: {exc!r}")

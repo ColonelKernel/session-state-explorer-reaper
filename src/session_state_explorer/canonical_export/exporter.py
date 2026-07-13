@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import re
 from datetime import datetime, timezone
 from os.path import basename
@@ -92,8 +93,26 @@ def _sanitize(obj: Any) -> Any:
     return obj
 
 
+def _null_non_finite(obj: Any) -> Any:
+    """Map non-finite floats (NaN/±Inf) to ``None`` so every bundle file is valid JSON."""
+
+    if isinstance(obj, float):
+        return obj if math.isfinite(obj) else None
+    if isinstance(obj, dict):
+        return {key: _null_non_finite(value) for key, value in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_null_non_finite(value) for value in obj]
+    return obj
+
+
 def _dump_json(payload: Any) -> bytes:
-    return (json.dumps(payload, indent=2, ensure_ascii=False) + "\n").encode("utf-8")
+    # allow_nan=False is the backstop: a non-finite value the coercion misses fails the
+    # export loudly rather than silently writing an RFC-8259-invalid NaN/Infinity token
+    # into native.json / canonical.snapshot.json (and its content hash).
+    body = json.dumps(
+        _null_non_finite(payload), indent=2, ensure_ascii=False, allow_nan=False
+    )
+    return (body + "\n").encode("utf-8")
 
 
 def _daw_version(header_platform: Optional[str]) -> Optional[str]:
