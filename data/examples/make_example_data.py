@@ -185,6 +185,27 @@ def write_audio(target_dir: str = HERE, duration: float = 2.0) -> List[str]:
     return written
 
 
+def ensure_audio(target_dir: str = HERE) -> List[str]:
+    """Write the synthetic stems only if they are not already present.
+
+    Lets a fresh checkout self-heal the bundled example: the ``.rpp`` is committed
+    but its audio is git-ignored, so a Streamlit Community Cloud deploy (a bare clone)
+    has no stems. Calling this on first example-load regenerates them so descriptors
+    and the grounded recommendations populate. Idempotent and cheap once written.
+    """
+
+    audio_dir = os.path.join(target_dir, AUDIO_DIRNAME)
+    if os.path.isdir(audio_dir):
+        present = [
+            os.path.join(audio_dir, name)
+            for name in os.listdir(audio_dir)
+            if name.endswith(".wav")
+        ]
+        if len(present) >= len(STEMS):
+            return sorted(present)
+    return write_audio(target_dir)
+
+
 def main() -> None:
     rpp_path = write_rpp()
     print(f"Wrote project: {rpp_path}")

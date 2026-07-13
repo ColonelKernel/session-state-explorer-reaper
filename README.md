@@ -19,13 +19,22 @@ context of the Music Technology Group (Universitat Pompeu Fabra) and Steinberg.
 > inspected, and used for explainable assistance.
 
 <p align="center">
-  <a href="https://github.com/ColonelKernel/session-state-explorer/releases/latest/download/session-state-explorer-demo.mp4">
+  <a href="https://github.com/ColonelKernel/session-state-explorer-reaper/releases/latest/download/session-state-explorer-demo.mp4">
     <img src="docs/media/demo.gif" width="820"
          alt="Highlight reel of the Session State Explorer UI: channel-strip console, signal-flow graph, grounded mix notes, and JSON export">
   </a>
   <br>
   <em>90-second walkthrough — channel-strip console → signal flow → grounded mix notes → export.
-  <a href="https://github.com/ColonelKernel/session-state-explorer/releases/latest/download/session-state-explorer-demo.mp4">▶ Watch in HD with captions</a>.</em>
+  <a href="https://github.com/ColonelKernel/session-state-explorer-reaper/releases/latest/download/session-state-explorer-demo.mp4">▶ Watch in HD with captions</a>.</em>
+</p>
+
+<p align="center">
+  <a href="https://share.streamlit.io/deploy?repository=ColonelKernel/session-state-explorer-reaper&branch=main&mainModule=src/session_state_explorer/app.py">
+    <img src="https://static.streamlit.io/badges/streamlit_badge_black_white.svg" alt="Deploy to Streamlit Community Cloud">
+  </a>
+  <br>
+  <em>Run it live — one-click deploy to Streamlit Community Cloud (free). The bundled example
+  regenerates its audio on first load, so descriptors and grounded notes populate with no setup.</em>
 </p>
 
 ---
@@ -104,10 +113,12 @@ pip install -e ".[test]"    # + pytest
 
 ## 5. Usage
 
-Generate the bundled example data (synthetic stems + a matching project), then run the app:
+Run the app — clicking **Load bundled example project** regenerates the example's synthetic
+stems on first use, so no setup is needed (this is also what makes the one-click cloud deploy
+above work). To pre-generate them yourself, run the optional first command:
 
 ```bash
-python data/examples/make_example_data.py
+python data/examples/make_example_data.py   # optional — the app does this on demand
 streamlit run src/session_state_explorer/app.py
 ```
 

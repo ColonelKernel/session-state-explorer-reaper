@@ -67,6 +67,30 @@ EXAMPLE_DIR = os.path.join(REPO_ROOT, "data", "examples")
 SEVERITY_ICON = {"info": "ℹ️", "suggestion": "💡", "warning": "⚠️"}
 
 
+def _ensure_example_audio() -> None:
+    """Synthesise the git-ignored example stems if they are missing.
+
+    The bundled ``.rpp`` is committed but its audio is generated and git-ignored, so a
+    fresh checkout — notably a Streamlit Community Cloud deploy — ships without stems.
+    We create them on demand from the committed generator so the example's descriptors
+    and grounded recommendations populate on first load. Audio is optional: any failure
+    (missing soundfile, read-only FS) degrades silently to the graph-only experience.
+    """
+
+    try:
+        import importlib.util
+
+        gen_path = os.path.join(EXAMPLE_DIR, "make_example_data.py")
+        spec = importlib.util.spec_from_file_location("_sse_example_data", gen_path)
+        if spec is None or spec.loader is None:
+            return
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        module.ensure_audio(EXAMPLE_DIR)
+    except Exception:  # pragma: no cover - audio is an optional enhancement
+        pass
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -294,6 +318,7 @@ def _sidebar() -> None:
 
         if st.button("Load bundled example project", use_container_width=True):
             if os.path.isfile(EXAMPLE_RPP):
+                _ensure_example_audio()  # self-heal stems on a fresh (cloud) checkout
                 with open(EXAMPLE_RPP, "r", encoding="utf-8") as handle:
                     st.session_state["rpp_text"] = handle.read()
                 st.session_state["source_file"] = EXAMPLE_RPP
