@@ -156,7 +156,7 @@ def linear_to_db(value: Optional[float]) -> Optional[float]:
     table). Unity gain (1.0) maps to 0 dB.
     """
 
-    if value is None or value <= 0:
+    if value is None or not math.isfinite(value) or value <= 0:
         return None
     return round(20.0 * math.log10(value), 2)
 
@@ -223,6 +223,10 @@ def swell_platform(header: Optional[str]) -> Optional[bool]:
 # width. Applies to the AUXRECV source/destination channel tokens.
 _SEND_CHANNEL_INDEX_MASK = 0x3FF
 _SEND_DST_MONO_FLAG = 1024
+# REAPER tracks carry at most 64 channels, so a decoded send width above that is a
+# corrupt/hostile packed value. Cap it to keep a bad token from materialising a
+# multi-million-element channel list (memory blow-up + giant export).
+_MAX_SEND_CHANNELS = 64
 
 
 def decode_send_src_channels(packed: Optional[int]) -> Optional[List[int]]:
@@ -244,7 +248,7 @@ def decode_send_src_channels(packed: Optional[int]) -> Optional[List[int]]:
     elif mode == 1:
         count = 1
     else:
-        count = 2 * mode
+        count = min(2 * mode, _MAX_SEND_CHANNELS)
     return list(range(start, start + count))
 
 
@@ -297,14 +301,22 @@ def decode_send_midi_flags(packed: Optional[int]) -> Optional[dict]:
 # ---------------------------------------------------------------------------
 
 def safe_float(token: Optional[str]) -> Optional[float]:
-    """Parse a float, returning ``None`` instead of raising on bad input."""
+    """Parse a float, returning ``None`` instead of raising on bad input.
+
+    Non-finite results (``nan``/``inf`` from tokens like ``"nan"``, ``"inf"`` or an
+    overflowing exponent such as ``"1e400"``) also degrade to ``None`` rather than
+    entering the model: they are never valid REAPER values, they crash integer
+    conversions downstream, and they serialise to non-standard JSON tokens
+    (``NaN``/``Infinity``) that strict consumers reject.
+    """
 
     if token is None:
         return None
     try:
-        return float(token)
+        value = float(token)
     except (TypeError, ValueError):
         return None
+    return value if math.isfinite(value) else None
 
 
 def safe_int(token: Optional[str]) -> Optional[int]:

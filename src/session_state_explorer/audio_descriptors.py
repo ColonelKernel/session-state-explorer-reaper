@@ -14,6 +14,7 @@ analysis; integrated loudness (LUFS) is computed only when the optional
 
 from __future__ import annotations
 
+import math
 import os
 from typing import List, Optional
 
@@ -199,9 +200,12 @@ def _approx_dynamic_range_db(signal) -> Optional[float]:
 def _integrated_loudness(signal, sr) -> Optional[float]:
     try:  # pragma: no cover - optional dependency
         meter = _pyln.Meter(sr)
-        loudness = meter.integrated_loudness(signal)
-        if loudness == float("-inf"):
+        loudness = float(meter.integrated_loudness(signal))
+        # Digital silence yields -inf per block and an empty gated set, so pyloudnorm
+        # returns NaN (not -inf) via np.mean([]). Reject every non-finite result so a
+        # silent stem leaves loudness unset instead of leaking NaN into the JSON export.
+        if not math.isfinite(loudness):
             return None
-        return round(float(loudness), 2)
+        return round(loudness, 2)
     except Exception:
         return None

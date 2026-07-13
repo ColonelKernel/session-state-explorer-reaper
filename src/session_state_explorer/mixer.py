@@ -13,6 +13,7 @@ role, FX family/enabled/offline in chain order, and routes with send mode/level/
 from __future__ import annotations
 
 import html
+import math
 import re
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional
@@ -155,6 +156,8 @@ def format_db(volume_db: Optional[float]) -> str:
 
     if volume_db is None:
         return "-∞ dB"
+    if not math.isfinite(volume_db):
+        return "—"
     if abs(volume_db) < 0.05:
         return "0.0 dB"  # unity
     return f"{volume_db:+.1f} dB"
@@ -163,7 +166,7 @@ def format_db(volume_db: Optional[float]) -> str:
 def format_pan(pan: Optional[float]) -> str:
     """REAPER pan is -1..+1. Render as C / L<n> / R<n> (percent off-centre)."""
 
-    if pan is None:
+    if pan is None or not math.isfinite(pan):
         return "—"
     if abs(pan) < 0.005:
         return "C"

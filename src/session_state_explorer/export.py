@@ -8,6 +8,7 @@ sessions). All payloads are plain JSON-serialisable dicts.
 from __future__ import annotations
 
 import json
+import math
 from typing import List, Optional
 
 import networkx as nx
@@ -50,9 +51,18 @@ def build_export(
 
 
 def to_json_str(payload: dict, indent: int = 2) -> str:
-    """Pretty JSON string with safe defaults for numpy / non-serialisable values."""
+    """Pretty JSON string with safe defaults for numpy / non-serialisable values.
 
-    return json.dumps(payload, indent=indent, default=_json_default)
+    Non-finite floats (``NaN``/``Infinity``, e.g. a NaN loudness from a silent stem)
+    are coerced to ``null`` so the export is always valid RFC-8259 JSON; ``null`` reads
+    as an honest "unobserved" gap rather than a token strict parsers reject. ``allow_nan``
+    is left off as a backstop, so anything the sanitiser misses fails loudly instead of
+    silently writing an invalid document.
+    """
+
+    return json.dumps(
+        _replace_non_finite(payload), indent=indent, allow_nan=False, default=_json_default
+    )
 
 
 def to_json_bytes(payload: dict, indent: int = 2) -> bytes:
@@ -84,6 +94,18 @@ def recommendations_export(recommendations: List[Recommendation]) -> dict:
         "schema_version": SCHEMA_VERSION,
         "recommendations": [r.model_dump() for r in recommendations],
     }
+
+
+def _replace_non_finite(obj):
+    """Recursively map non-finite floats (NaN/±Inf) to ``None`` for valid-JSON output."""
+
+    if isinstance(obj, float):
+        return obj if math.isfinite(obj) else None
+    if isinstance(obj, dict):
+        return {key: _replace_non_finite(value) for key, value in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_replace_non_finite(value) for value in obj]
+    return obj
 
 
 def _json_default(obj):

@@ -512,7 +512,12 @@ def _rule_manual_submix(project: ProjectState) -> List[Recommendation]:
             continue
         source = track_by_id.get(route.source_track_id)
         if source is not None:
-            sources_of.setdefault(route.target_track_id, []).append(source)
+            bucket = sources_of.setdefault(route.target_track_id, [])
+            # A single track may feed one bus via several sends (e.g. parallel sends on
+            # different channels); count each distinct source once so two sends from one
+            # track never look like a multi-track submix.
+            if all(existing.id != source.id for existing in bucket):
+                bucket.append(source)
 
     submixes = []
     for target_id, sources in sources_of.items():
