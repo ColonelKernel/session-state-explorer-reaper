@@ -86,7 +86,7 @@ observable state surfaced rather than hidden.
   fallback; node types are colour- and shape-coded with a legend and display filters.
 - **Audio descriptors** — simple, interpretable acoustic features per audio file via
   `librosa` (optional, graceful when absent).
-- **Explainable recommendations** — five rule-based heuristics, each with an explanation,
+- **Explainable recommendations** — twelve rule-based heuristics, each with an explanation,
   a suggested action, related node ids, and an explicit caveat.
 - **Session fingerprint & comparison** — a small structural fingerprint and a similarity
   measure between two exported sessions (stretch feature).
@@ -172,7 +172,7 @@ unresolved (partially observed) elements, number of warnings.
 
 ## 9. Recommendation examples
 
-Eleven heuristic rules, each producing a caveated `Recommendation`. Suggestions are
+Twelve heuristic rules, each producing a caveated `Recommendation`. Suggestions are
 **REAPER-native and literature-grounded**: they name stock processors and canonical
 workflows, and each carries page citations into the official REAPER User Guide and the
 ReaEffects Guide (see `reaper_fx_knowledge.py`).
@@ -195,7 +195,10 @@ ReaEffects Guide (see `reaper_fx_knowledge.py`).
 9. **Manual submix** — sources with master-send disabled converging on one bus → the
    guide-preferred folder-track structure.
 10. **Clipping-risk stems** — source peaks at full scale → true-peak check, ReaLimit.
-11. **Meters in the render path** — analysis-only plug-ins in ordinary chains → the
+11. **Broadband noise floor** — a stem with low dynamic range *and* a high zero-crossing
+    rate (steady hiss, not percussion) → ReaFir in Subtract mode. Descriptor-triggered;
+    ships with provisional thresholds pending calibration against a labelled corpus.
+12. **Meters in the render path** — analysis-only plug-ins in ordinary chains → the
     Monitoring FX chain.
 
 Example of a grounded suggestion (rule 9): _“Select the member tracks and right-click >
@@ -276,8 +279,9 @@ caveated suggestions that keep the producer in control. See
 
 ## 13. Roadmap
 
-- A descriptor-triggered noise-reduction rule (ReaFir Subtract mode) once the
-  low-dynamic-range / high-ZCR thresholds are calibrated against labelled stems.
+- Calibrating the descriptor-triggered noise-reduction rule (ReaFir Subtract mode)
+  against a labelled corpus — it now ships with provisional low-dynamic-range / high-ZCR
+  thresholds validated only against synthetic stems.
 - Broaden parser coverage (envelopes, take FX, item fades, tempo maps).
 - Richer, validated audio descriptors and optional Essentia high-level features.
 - Learned (not only rule-based) graph reasoning, evaluated with producers in the loop.

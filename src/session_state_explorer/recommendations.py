@@ -44,6 +44,13 @@ ALL_OFFLINE_MIN_FX = 3  # fewer offline FX than this is not a pattern
 BYPASSED_FX_MIN = 2  # per-track bypassed-but-online count worth mentioning
 MUTED_SEND_FLOOR_DB = -60.0  # a send below this is effectively silent
 CLIPPING_PEAK_THRESHOLD = 0.99  # sample peak considered "at full scale"
+# Descriptor signature of a steady broadband noise floor: a high zero-crossing rate
+# (lots of high-frequency energy) *together with* a low dynamic range (the floor never
+# drops). Percussion clears the first test but not the second — its transients keep the
+# dynamic range wide — so both conditions are required. Provisional thresholds, validated
+# against synthetic stems only, not a labelled corpus (README roadmap item).
+NOISE_MIN_ZCR = 0.15
+NOISE_MAX_DYNAMIC_RANGE_DB = 12.0
 
 
 def _refs(*keys_and_names: str) -> List[str]:
@@ -82,6 +89,7 @@ def generate_recommendations(
     recs.extend(_rule_bypassed_fx(project))
     recs.extend(_rule_manual_submix(project))
     recs.extend(_rule_clipping_risk(descriptors))
+    recs.extend(_rule_noise_reduction(descriptors))
     recs.extend(_rule_meters_in_render_path(project))
 
     return recs
@@ -619,7 +627,70 @@ def _rule_clipping_risk(
 
 
 # ---------------------------------------------------------------------------
-# Rule 11: metering FX in the render path
+# Rule 11: descriptor-triggered broadband-noise floor (ReaFir Subtract mode)
+# ---------------------------------------------------------------------------
+
+def _rule_noise_reduction(
+    descriptors: List[AudioDescriptorSet],
+) -> List[Recommendation]:
+    """Flag stems whose descriptors are consistent with a steady broadband noise floor.
+
+    Trigger: low ``dynamic_range_db`` **and** high ``zero_crossing_rate_mean``. The two
+    together separate continuous hiss from percussion — hats and snares also have a high
+    zero-crossing rate, but their transients keep the dynamic range wide, whereas a
+    constant noise floor holds the quiet passages up and compresses it. Deliberately
+    low-confidence: the thresholds are provisional heuristics, not yet calibrated against
+    a labelled corpus (README roadmap item).
+    """
+
+    noisy = [
+        d
+        for d in descriptors
+        if d.available
+        and d.dynamic_range_db is not None
+        and d.zero_crossing_rate_mean is not None
+        and d.dynamic_range_db <= NOISE_MAX_DYNAMIC_RANGE_DB
+        and d.zero_crossing_rate_mean >= NOISE_MIN_ZCR
+    ]
+    if not noisy:
+        return []
+
+    names = ", ".join(_basename(d.file_path or d.node_id or "?") for d in noisy)
+    plural = "stems show" if len(noisy) > 1 else "stem shows"
+    return [
+        Recommendation(
+            id="rec-noise-reduction",
+            title="Possible broadband noise floor — candidate for ReaFir Subtract",
+            severity="info",
+            confidence=0.4,
+            related_node_ids=[d.node_id for d in noisy if d.node_id],
+            explanation=(
+                f"{len(noisy)} source {plural} a low dynamic range together with a high "
+                f"zero-crossing rate ({names}) — a pattern consistent with a steady "
+                "broadband noise floor (hiss, hum, air-conditioning) rather than a clean "
+                "capture. Percussion is excluded on purpose: it shares the high "
+                "zero-crossing rate but keeps a wide dynamic range through its transients."
+            ),
+            suggested_action=(
+                "If the stem carries unwanted steady noise, ReaFir in Subtract mode is the "
+                "stock noise-reduction tool: play a noise-only section so it builds a noise "
+                "profile, then let it subtract that profile during playback. Capture the "
+                "profile from a genuinely silent-but-noisy passage so musical content is "
+                "not learned into it."
+            ),
+            caveat=(
+                _CAVEAT + " High-zero-crossing, low-dynamic-range material is often "
+                "intentional — a cymbal wash, distorted guitar, synth texture, or a "
+                "noise-based sound-design element — in which case no reduction is wanted. "
+                "The thresholds are provisional and not yet calibrated against labelled stems."
+            ),
+            references=_refs("ReaFir"),
+        )
+    ]
+
+
+# ---------------------------------------------------------------------------
+# Rule 12: metering FX in the render path
 # ---------------------------------------------------------------------------
 
 def _rule_meters_in_render_path(project: ProjectState) -> List[Recommendation]:
