@@ -4,8 +4,11 @@
 [![Release](https://img.shields.io/github/v/release/ColonelKernel/session-state-explorer)](https://github.com/ColonelKernel/session-state-explorer/releases)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue)](pyproject.toml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+[![Live workbench](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://session-state-analyzer-n2lj2kmjjijdzta7oarpyt.streamlit.app/)
 
 **Interpretable DAW-state graphs for human-centered AI-assisted music production.**
+
+**[Live demo](https://session-state-analyzer-n2lj2kmjjijdzta7oarpyt.streamlit.app/)** — this adapter's canonical bundles rendered in the Session State Analyzer workbench (no install).
 
 Session State Explorer is a small research prototype that parses a [REAPER](https://www.reaper.fm/)
 `.rpp` project into an **interpretable, partially observable graph** of its DAW state —
